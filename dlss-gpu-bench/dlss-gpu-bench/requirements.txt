@@ -1,0 +1,4 @@
+psutil>=5.9
+nvidia-ml-py>=12.535
+pandas>=2.0
+matplotlib>=3.7
