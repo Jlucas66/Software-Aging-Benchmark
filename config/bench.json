@@ -55,7 +55,7 @@
   "presentmon": {
     // PresentMon mede os frames EXIBIDOS (inclui os frames gerados pelo Frame Generation).
     // A engine so enxerga os frames renderizados. Recomendado ligar para todos os testes.
-    "enabled": false,
+    "enabled": true,
     "exe": "C:/Tools/PresentMon/PresentMon.exe",
     // Grava uma janela de sample_seconds a cada every_minutes (arquivo por frame e muito grande para 48h)
     "every_minutes": 10,
