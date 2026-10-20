@@ -114,6 +114,15 @@ def _mean(df, col):
     return round(float(s.mean()), 2) if not s.empty else None
 
 
+def _mean_positive(df, col):
+    """Media so dos valores > 0 (ex.: FPS exibido do Frame Generation, que e 0 com o FG desligado)."""
+    if df is None or col not in df:
+        return None
+    s = pd.to_numeric(df.loc[df["after_warmup"], col], errors="coerce")
+    s = s[s > 0]
+    return round(float(s.mean()), 2) if not s.empty else None
+
+
 def _max(df, col):
     if df is None or col not in df:
         return None
@@ -129,6 +138,7 @@ def compute_stats(t: dict) -> dict:
         "fps_medio": _mean(eng, "avg_fps"), "fps_1pct_low": _mean(eng, "low1_fps"),
         "frametime_ms": _mean(eng, "avg_frametime_ms"), "frametime_p99_ms": _mean(eng, "p99_frametime_ms"),
         "gpu_time_ms": _mean(eng, "gpu_time_ms"),
+        "fps_exibido_dlssg": _mean_positive(eng, "dlssg_fps"),
         "fps_exibido_presentmon": _mean(pm, "displayed_fps"),
         "gpu_util_pct": _mean(sysd, "gpu_util_pct"), "vram_mb": _mean(sysd, "vram_used_mb"),
         "temp_media_c": _mean(sysd, "gpu_temp_c"), "temp_max_c": _max(sysd, "gpu_temp_c"),
@@ -169,6 +179,8 @@ def plot_test(t: dict, out_png: Path) -> None:
         for col, label, color in series:
             if col in df:
                 ax.plot(*_break_gaps(df, col), color=color, label=label)
+        if title == "FPS" and df is not None and "dlssg_fps" in df and (pd.to_numeric(df["dlssg_fps"], errors="coerce") > 0).any():
+            ax.plot(*_break_gaps(df, "dlssg_fps"), color=SERIES[3], label="FPS exibido (Frame Generation)")
         if title == "FPS" and pm is not None:
             ax.scatter(pm["hours"], pm["displayed_fps"], s=18, color=SERIES[2], label="FPS exibido (PresentMon)", zorder=3)
         if title == "FPS":

@@ -79,6 +79,7 @@ public:
     FString GetPhaseTag() const { return PhaseTag; }
     double GetElapsedSeconds() const;
     int32 GetCurrentLap() const { return CurrentLap; }
+    FString GetDLSSStatusLine() const;
 
 private:
     TArray<float> FPSHistory; // original, nao e mais usado no modo continuo
@@ -106,4 +107,12 @@ private:
     FTimerHandle SampleTimer;
     FTimerHandle DurationTimer;
     FTimerHandle RunConfigTimer;
+
+    // Estado do DLSS informado pelo plugin (preenchido em WriteRunConfig)
+    FString SupportDLSS;
+    FString SupportRR;
+    FString SupportDLSSG;
+    FString ActiveDLSSMode;
+    FString ActiveDLSSGMode;
+    float LastDLSSGFps = 0.f;
 };

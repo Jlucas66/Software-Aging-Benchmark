@@ -32,6 +32,7 @@ METRICS = {
     "render_thread_ms": ("engine", "ms",  "aumento", "Tempo da render thread"),
     "avg_fps":          ("engine", "FPS", "queda",   "FPS médio"),
     "low1_fps":         ("engine", "FPS", "queda",   "FPS 1% low"),
+    "dlssg_fps":        ("engine", "FPS", "queda",   "FPS exibido (Frame Generation)"),
     "gpu_temp_c":       ("system", "°C",  None,      "Temperatura da GPU"),
     "clock_sm_mhz":     ("system", "MHz", None,      "Clock SM da GPU"),
     "power_w":          ("system", "W",   None,      "Potência da GPU"),
@@ -39,7 +40,7 @@ METRICS = {
     "cpu_util_pct":     ("system", "%",   None,      "Uso da CPU"),
 }
 PLOT_METRICS = ["process_mem_mb", "vram_used_mb", "avg_frametime_ms", "p99_frametime_ms"]
-CONSOLE_METRICS = ["process_mem_mb", "vram_used_mb", "avg_frametime_ms", "p99_frametime_ms", "avg_fps"]
+CONSOLE_METRICS = ["process_mem_mb", "vram_used_mb", "avg_frametime_ms", "p99_frametime_ms", "avg_fps", "dlssg_fps"]
 
 
 @dataclass
@@ -198,8 +199,11 @@ def analyze_test(test: TestData, params: Params) -> tuple[list[dict], dict]:
             continue
         source, unit, direction, desc = METRICS[metric]
         df = test.engine if source == "engine" else test.system
-        if df is None or metric not in df or pd.to_numeric(df[metric], errors="coerce").notna().sum() == 0:
+        if df is None or metric not in df:
             continue
+        numeric = pd.to_numeric(df[metric], errors="coerce")
+        if numeric.notna().sum() == 0 or (numeric.fillna(0) == 0).all():
+            continue  # sem dados (ex.: FPS do Frame Generation num teste sem FG)
         parts = prepare_series(df, metric, test.segments, test.t0, params)
         if not parts:
             continue

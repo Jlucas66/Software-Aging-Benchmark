@@ -3,21 +3,31 @@
 // Como funciona: para cada teste o programa monta a lista de console variables (cvars)
 // assim:  base_cvars  +  all_off  +  features do teste (na ordem listada).
 // Assim todo teste tem TODOS os cvars de DLSS definidos explicitamente, sem sobras
-// do teste anterior.
+// do teste anterior. Nomes conferidos no plugin DLSS 4.5 v8.6.1 para UE 5.4.
 //
 // Mapeamento usado (troque aqui se o seu for outro):
 //   "dlss" = DLSS ligado a 100% da resolucao (DLAA): a rede do DLSS roda, mas sem
 //            reduzir a resolucao, sem gerar frames e sem substituir denoisers.
-//   "fg"   = Feature 1: Frame Generation (DLSS-G). Exige RTX serie 40 ou mais nova e DX12.
+//   "fg"   = Feature 1: Frame Generation (DLSS-FG). Exige RTX serie 40 ou mais nova e DX12.
+//            FramesToGenerate = 1 fixa o modo 2x (1 frame gerado por frame renderizado).
+//            Na RTX 50 da para usar 2 (3x) ou 3 (4x); mantenha o mesmo valor em todos os testes.
 //   "rr"   = Feature 2: Ray Reconstruction (DLSS-RR). So tem efeito com ray tracing por hardware.
+//            Desliga os denoisers da propria Unreal que a RR substitui (o plugin faz o mesmo
+//            quando a RR e ligada pela funcao oficial EnableDLSSRR).
 //   "sr"   = Feature 3: Super Resolution (renderiza em resolucao menor e o DLSS reconstroi).
 //            66.7 = modo Quality; 58 = Balanced; 50 = Performance; 33.3 = Ultra Performance.
+//
+// Presets (modelo de IA do DLSS): 0 = padrao da DLL que vem com o plugin, igual em todas as
+// maquinas. Para isso valer, DESLIGUE os "overrides" de DLSS no NVIDIA App em todas as maquinas.
+// Para forcar um modelo especifico: r.NGX.DLSS.Preset 11 = preset K (transformer).
 {
   "base_cvars": {
     "r.VSync": "0",
     "t.MaxFPS": "0",
     "t.IdleWhenNotForeground": "0",
-    "r.AntiAliasingMethod": "4"
+    "r.AntiAliasingMethod": "4",
+    "r.NGX.DLSS.Preset": "0",
+    "r.NGX.DLSSRR.Preset": "0"
   },
 
   "all_off": {
@@ -29,8 +39,11 @@
 
   "features": {
     "dlss": { "r.NGX.DLSS.Enable": "1", "r.ScreenPercentage": "100" },
-    "fg":   { "r.Streamline.DLSSG.Enable": "1" },
-    "rr":   { "r.NGX.DLSS.DenoiserMode": "1" },
+    "fg":   { "r.Streamline.DLSSG.Enable": "1", "r.Streamline.DLSSG.FramesToGenerate": "1" },
+    "rr":   { "r.NGX.DLSS.DenoiserMode": "1",
+              "r.Shadow.Denoiser": "0",
+              "r.Lumen.Reflections.ScreenSpaceReconstruction": "0",
+              "r.Lumen.Reflections.Temporal": "0" },
     "sr":   { "r.ScreenPercentage": "66.7" }
   },
 

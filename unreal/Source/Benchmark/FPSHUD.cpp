@@ -56,4 +56,9 @@ void AFPSHUD::DrawHUD()
     FCanvasTextItem Item3(FVector2D(50, 210), FText::FromString(Line3), Small, Line3Color);
     Item3.EnableShadow(ShadowColor, ShadowOffset);
     Canvas->DrawItem(Item3);
+
+    // Linha 4: modo do DLSS e suporte de cada recurso, para conferir visualmente
+    FCanvasTextItem Item4(FVector2D(50, 260), FText::FromString(BenchmarkManagerRef->GetDLSSStatusLine()), Small, Line3Color);
+    Item4.EnableShadow(ShadowColor, ShadowOffset);
+    Canvas->DrawItem(Item4);
 }

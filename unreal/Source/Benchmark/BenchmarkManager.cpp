@@ -23,6 +23,12 @@
 #include "RHI.h"
 #include "DynamicRHI.h"
 #include "RenderCore.h"
+#include "UObject/Class.h"
+
+// Plugins da NVIDIA (DLSS 4.5 plugin 8.6.1 para UE 5.4)
+#include "DLSSLibrary.h"             // modulo DLSSBlueprint
+#include "StreamlineLibrary.h"       // modulo StreamlineBlueprint
+#include "StreamlineLibraryDLSSG.h"  // modulo StreamlineDLSSGBlueprint
 
 FTimerHandle DetailsTimer;
 
@@ -34,7 +40,12 @@ namespace
         TEXT("r.NGX.DLSS.Enable"),
         TEXT("r.NGX.DLSS.DenoiserMode"),
         TEXT("r.NGX.DLSS.Preset"),
+        TEXT("r.NGX.DLSSRR.Preset"),
         TEXT("r.Streamline.DLSSG.Enable"),
+        TEXT("r.Streamline.DLSSG.FramesToGenerate"),
+        TEXT("r.Shadow.Denoiser"),
+        TEXT("r.Lumen.Reflections.ScreenSpaceReconstruction"),
+        TEXT("r.Lumen.Reflections.Temporal"),
         TEXT("r.ScreenPercentage"),
         TEXT("r.AntiAliasingMethod"),
         TEXT("r.RayTracing"),
@@ -48,6 +59,14 @@ namespace
         FString Out = In.Replace(TEXT("\\"), TEXT("\\\\"));
         Out = Out.Replace(TEXT("\""), TEXT("\\\""));
         return Out;
+    }
+
+    // Nome legivel de um valor de UENUM (ex.: UDLSSSupport::Supported -> "Supported")
+    template <typename TEnum>
+    FString EnumName(TEnum Value)
+    {
+        const UEnum* Enum = StaticEnum<TEnum>();
+        return Enum ? Enum->GetNameStringByValue(static_cast<int64>(Value)) : FString::FromInt(static_cast<int32>(Value));
     }
 
     FString CVarValueOrMissing(const TCHAR* Name)
@@ -88,7 +107,7 @@ void ABenchmarkManager::BeginPlay()
     if (!IFileManager::Get().FileExists(*SamplesPath))
     {
         AppendLine(SamplesPath,
-            TEXT("timestamp_utc,elapsed_s,lap,frames,avg_fps,avg_frametime_ms,p99_frametime_ms,low1_fps,max_frametime_ms,gpu_time_ms,game_thread_ms,render_thread_ms,process_mem_mb\n"));
+            TEXT("timestamp_utc,elapsed_s,lap,frames,avg_fps,avg_frametime_ms,p99_frametime_ms,low1_fps,max_frametime_ms,gpu_time_ms,game_thread_ms,render_thread_ms,process_mem_mb,dlssg_fps,dlssg_frames_presented\n"));
     }
 
     ApplyRequestedCVars();
@@ -217,6 +236,23 @@ void ABenchmarkManager::WriteRunConfig()
     }
     Json += TEXT("  ],\n");
 
+    // Suporte de hardware informado pelo proprio plugin da NVIDIA.
+    // "Supported" = recurso disponivel nesta GPU/driver/SO. Qualquer outro valor diz o motivo.
+    SupportDLSS = EnumName(UDLSSLibrary::QueryDLSSSupport());
+    SupportRR = EnumName(UDLSSLibrary::QueryDLSSRRSupport());
+    SupportDLSSG = EnumName(UStreamlineLibraryDLSSG::QueryDLSSGSupport());
+    ActiveDLSSMode = EnumName(UDLSSLibrary::GetDLSSMode());
+    ActiveDLSSGMode = EnumName(UStreamlineLibraryDLSSG::GetDLSSGMode());
+    Json += TEXT("  \"support\": {\n");
+    Json += FString::Printf(TEXT("    \"dlss_sr\": \"%s\",\n"), *SupportDLSS);
+    Json += FString::Printf(TEXT("    \"dlss_rr\": \"%s\",\n"), *SupportRR);
+    Json += FString::Printf(TEXT("    \"dlssg\": \"%s\",\n"), *SupportDLSSG);
+    Json += FString::Printf(TEXT("    \"dlss_mode\": \"%s\",\n"), *ActiveDLSSMode);
+    Json += FString::Printf(TEXT("    \"dlssg_mode\": \"%s\"\n"), *ActiveDLSSGMode);
+    Json += TEXT("  },\n");
+    UE_LOG(LogTemp, Log, TEXT("[Bench] Suporte: DLSS-SR=%s DLSS-RR=%s DLSS-FG=%s | modo DLSS=%s FG=%s"),
+        *SupportDLSS, *SupportRR, *SupportDLSSG, *ActiveDLSSMode, *ActiveDLSSGMode);
+
     // Estado de todas as cvars relevantes para DLSS, pedidas ou nao.
     Json += TEXT("  \"audit\": {\n");
     const int32 NumAudit = UE_ARRAY_COUNT(GAuditCVars);
@@ -248,6 +284,21 @@ void ABenchmarkManager::Tick(float DeltaTime)
             WindowFrameTimesMs.Add(RawDelta * 1000.0f);
         }
     }
+}
+
+FString ABenchmarkManager::GetDLSSStatusLine() const
+{
+    if (SupportDLSS.IsEmpty())
+    {
+        return TEXT("DLSS: verificando...");
+    }
+    FString Line = FString::Printf(TEXT("DLSS %s (SR %s, RR %s, FG %s) | FG %s"),
+        *ActiveDLSSMode, *SupportDLSS, *SupportRR, *SupportDLSSG, *ActiveDLSSGMode);
+    if (LastDLSSGFps > 0.f)
+    {
+        Line += FString::Printf(TEXT(" %.0f fps exibidos"), LastDLSSGFps);
+    }
+    return Line;
 }
 
 double ABenchmarkManager::GetElapsedSeconds() const
@@ -285,10 +336,18 @@ void ABenchmarkManager::WriteSample()
         const FPlatformMemoryStats MemStats = FPlatformMemory::GetStats();
         const double MemMb = static_cast<double>(MemStats.UsedPhysical) / (1024.0 * 1024.0);
 
+        // Com Frame Generation ligado, a engine so ve os frames renderizados; o plugin
+        // informa a taxa de frames realmente exibidos (0 quando o FG esta desligado).
+        float DLSSGFps = 0.f;
+        int32 DLSSGFramesPresented = 0;
+        UStreamlineLibraryDLSSG::GetDLSSGFrameTiming(DLSSGFps, DLSSGFramesPresented);
+        LastDLSSGFps = DLSSGFps;
+
         const FString Line = FString::Printf(
-            TEXT("%s,%.1f,%d,%d,%.2f,%.3f,%.3f,%.2f,%.3f,%.3f,%.3f,%.3f,%.1f\n"),
+            TEXT("%s,%.1f,%d,%d,%.2f,%.3f,%.3f,%.2f,%.3f,%.3f,%.3f,%.3f,%.1f,%.2f,%d\n"),
             *FDateTime::UtcNow().ToIso8601(), GetElapsedSeconds(), CurrentLap, N,
-            AvgFps, AvgMs, P99Ms, Low1Fps, MaxMs, GpuMs, GameMs, RenderMs, MemMb);
+            AvgFps, AvgMs, P99Ms, Low1Fps, MaxMs, GpuMs, GameMs, RenderMs, MemMb,
+            DLSSGFps, DLSSGFramesPresented);
 
         AppendLine(SamplesPath, Line);
         WindowFrameTimesMs.Reset();

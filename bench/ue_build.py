@@ -4,6 +4,7 @@ compilar e empacotar - tudo pela linha de comando, sem precisar abrir o Visual S
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from datetime import datetime
@@ -12,6 +13,9 @@ from pathlib import Path
 from .config import ROOT, Config, is_windows
 
 SOURCE_TEMPLATES = ROOT / "unreal" / "Source" / "Benchmark"
+
+# Plugins da NVIDIA que o codigo C++ usa (precisam estar em <projeto>/Plugins e habilitados)
+REQUIRED_PLUGINS = ["DLSS", "StreamlineCore", "StreamlineDLSSG", "StreamlineReflex"]
 
 
 def _q(p) -> str:
@@ -60,6 +64,12 @@ def apply_to_project(cfg: Config, log) -> int:
         log.error("Projeto nao encontrado em %s (esperava Benchmark.uproject e Source/Benchmark).", project)
         return 1
 
+    missing = [p for p in REQUIRED_PLUGINS if not (project / "Plugins" / p / f"{p}.uplugin").exists()]
+    if missing:
+        log.error("Plugins da NVIDIA nao encontrados em %s: %s. Copie o plugin DLSS para la (secao 7).",
+                  project / "Plugins", ", ".join(missing))
+        return 1
+
     # Backup FORA da pasta Source (tudo dentro de Source e compilado pela Unreal)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup = project / "_bench_backup" / stamp
@@ -88,8 +98,25 @@ def apply_to_project(cfg: Config, log) -> int:
     else:
         log.info("DefaultEngine.ini: DirectX 12 ligado (ray tracing por hardware desligado).")
 
+    enable_plugins(cfg.uproject, REQUIRED_PLUGINS, backup, log)
+
     log.info("Backup dos arquivos originais em: %s", backup)
     return 0
+
+
+def enable_plugins(uproject: Path, names: list[str], backup: Path, log) -> None:
+    """Marca os plugins como habilitados no .uproject (o mesmo que Editar -> Plugins)."""
+    shutil.copy2(uproject, backup / uproject.name)
+    data = json.loads(uproject.read_text(encoding="utf-8-sig"))
+    plugins = data.setdefault("Plugins", [])
+    for name in names:
+        entry = next((p for p in plugins if p.get("Name") == name), None)
+        if entry is None:
+            plugins.append({"Name": name, "Enabled": True})
+        else:
+            entry["Enabled"] = True
+    uproject.write_text(json.dumps(data, indent="\t", ensure_ascii=False) + "\n", encoding="utf-8")
+    log.info("Plugins habilitados em %s: %s", uproject.name, ", ".join(names))
 
 
 def build_editor(cfg: Config, log) -> int:

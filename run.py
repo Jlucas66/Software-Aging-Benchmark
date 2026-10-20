@@ -75,6 +75,16 @@ def cmd_check(cfg: Config, args) -> int:
         plugins = list((cfg.project_dir / "Plugins").glob("**/*.uplugin")) if (cfg.project_dir / "Plugins").exists() else []
         dlss = [p.stem for p in plugins if any(k in p.stem.lower() for k in ("dlss", "streamline", "nis"))]
         ok(f"Plugins NVIDIA no projeto: {', '.join(sorted(dlss))}") if dlss else bad("Plugin DLSS nao encontrado em <projeto>/Plugins")
+        if dlss:
+            import json as _json
+            from bench.ue_build import REQUIRED_PLUGINS
+            try:
+                enabled = {p.get("Name") for p in _json.loads(cfg.uproject.read_text(encoding="utf-8-sig")).get("Plugins", [])
+                           if p.get("Enabled")}
+            except (OSError, ValueError):
+                enabled = set()
+            off = [n for n in REQUIRED_PLUGINS if n not in enabled]
+            ok("Plugins NVIDIA habilitados no projeto") if not off else bad(f"Plugins nao habilitados no .uproject: {', '.join(off)} (rode: python run.py apply)")
         problems += 0 if dlss else 1
         ini = cfg.project_dir / "Config" / "DefaultEngine.ini"
         text = ini.read_text(encoding="utf-8-sig", errors="ignore") if ini.exists() else ""

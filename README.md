@@ -115,7 +115,8 @@ de compilação (Build Tools).
 cd $env:USERPROFILE\Downloads
 .\vs_buildtools.exe --add Microsoft.VisualStudio.Workload.VCTools `
   --add Microsoft.VisualStudio.Component.VC.14.38.17.8.x86.x64 `
-  --add Microsoft.VisualStudio.Component.Windows11SDK.22621
+  --add Microsoft.VisualStudio.Component.Windows11SDK.22621 `
+  --add Microsoft.Net.Component.4.8.SDK
 ```
 
 Aceite a permissão de administrador. O Visual Studio Installer abre com tudo marcado.
@@ -128,6 +129,7 @@ painel da direita, "Detalhes da instalação":
 | Desenvolvimento para desktop com C++ | marcado |
 | MSVC v143 … (v14.38-17.8) | **marcado** (pode aparecer "fora de suporte"; é normal) |
 | SDK do Windows 11 (10.0.22621.0) | **marcado** |
+| SDK do .NET Framework 4.8 | **marcado** (o Editor da Unreal precisa dele) |
 | MSVC v143 … **(Mais recente)** | **desmarcado** |
 
 Clique em **Instalar** (~5 GB) e **reinicie o computador** no fim.
@@ -171,6 +173,7 @@ mostrar uma linha parecida com
 | `C4668: '__has_feature' is not defined` | A Unreal usou o compilador mais novo (14.4x): confira o passo 5 |
 | `LNK1181: cannot open input file 'delayimp.lib'` | Instalações de versões diferentes misturadas: no instalador, desmarque todos os MSVC e deixe só o 14.38 |
 | Unreal não encontra o Visual Studio | Foi instalado o Build Tools **2026**: instale o 2022 pelo link do passo 1 |
+| `Could not find NetFxSDK install dir` | Falta o **SDK do .NET Framework 4.8**: no Visual Studio Installer, **Modificar** → **Componentes individuais** → marque "SDK do .NET Framework 4.8" |
 
 ### 2.4 Python
 Instale o Python **3.11 ou mais novo** (testado até o 3.14) em <https://www.python.org/downloads/>.
@@ -283,16 +286,29 @@ Este passo confirma que a instalação está funcionando antes de mexer em qualq
 
 Sem o plugin, as configurações de DLSS não existem no jogo.
 
-1. Acesse <https://developer.nvidia.com/rtx/dlss/get-started>, crie uma conta NVIDIA
-   Developer (gratuita) e baixe o **DLSS Plugin para Unreal Engine 5.4**.
-2. Dentro do zip há uma pasta `Plugins` com subpastas (`DLSS`, `Streamline...`, `NIS`, etc.).
-3. Crie a pasta `C:\UE5Benchmark\Plugins` e copie **para dentro dela** todas essas subpastas.
-   Deve ficar, por exemplo: `C:\UE5Benchmark\Plugins\DLSS\DLSS.uplugin`.
-4. Abra `Benchmark.uproject`. Se perguntar sobre módulos para recompilar, clique em **Yes**.
-5. No Editor: **Edit → Plugins**, busque **"DLSS"** e **"Streamline"** e marque todos os
-   relacionados a Super Resolution/DLAA, Ray Reconstruction, Frame Generation e Reflex.
-   (O NIS é opcional.) Clique em **Restart Now**.
-6. Feche o Editor.
+> A página principal da NVIDIA só oferece o plugin para UE 5.5 a 5.8. A versão para 5.4
+> está no [arquivo oficial de versões anteriores](https://forums.developer.nvidia.com/t/nvidia-dlss-unreal-engine-plugin-archive/377564).
+> Este projeto foi validado com o **DLSS 4.5 Plugin v8.6.1** (21/05/2026), o mais recente
+> para UE 5.4. Use a mesma versão em todas as máquinas e cite-a no trabalho.
+
+1. Crie uma conta gratuita em <https://developer.nvidia.com> e, logado, baixe:
+   <https://developer.nvidia.com/downloads/assets/gameworks/downloads/secure/dlss/ue-dlss-5.4/8.6.1/2026.05.21_ue5.4_dlss4.5plugin_v8.6.1.zip>
+2. Extraia o zip. Dentro há uma pasta `Plugins` com as subpastas `DLSS`,
+   `DLSSMoviePipelineSupport`, `NIS`, `Streamline`, `StreamlineCore`, `StreamlineDeepDVC`,
+   `StreamlineDLSSG`, `StreamlineNGXCommon` e `StreamlineReflex`.
+3. Copie **todas essas subpastas** para `C:\UE5Benchmark\Plugins\`. Deve ficar, por exemplo,
+   `C:\UE5Benchmark\Plugins\DLSS\DLSS.uplugin`. A pasta `ProjectCleaner` que já está lá pode ficar.
+
+Não é preciso habilitar os plugins na mão: o `python run.py apply` (seção 8) habilita no
+`Benchmark.uproject` os quatro que o benchmark usa: `DLSS`, `StreamlineCore`,
+`StreamlineDLSSG` e `StreamlineReflex`.
+
+**Antes dos testes, em todas as máquinas:**
+- **NVIDIA App:** desligue qualquer *override* de DLSS (modelo/preset, modo do Frame
+  Generation). Senão o driver pode trocar o modelo do DLSS por conta própria e as máquinas
+  deixam de ser comparáveis.
+- **Windows → Configurações → Sistema → Tela → Elementos gráficos:** ligue o
+  **Agendamento de GPU acelerado por hardware**. O Frame Generation exige.
 
 ---
 
@@ -305,8 +321,10 @@ python run.py apply
 python run.py build
 ```
 
-**`apply`** faz três coisas:
+**`apply`** faz quatro coisas:
 - copia os arquivos de `unreal/Source/Benchmark/` para `C:\UE5Benchmark\Source\Benchmark\`;
+- habilita no `Benchmark.uproject` os plugins da NVIDIA que o código usa (e se recusa a
+  continuar se eles não estiverem em `C:\UE5Benchmark\Plugins`);
 - no `DefaultEngine.ini`, troca a API gráfica padrão de Vulkan para **DirectX 12**
   (o Frame Generation só funciona em DX12);
 - liga o **ray tracing por hardware** (sem ele o Ray Reconstruction não tem o que fazer).
@@ -322,9 +340,14 @@ Os arquivos originais ficam guardados em `C:\UE5Benchmark\_bench_backup\<data>\`
 - A câmera **volta ao início do percurso** e continua indefinidamente (antes, parava).
 - Recebe pela linha de comando: duração, nome do teste, pasta de saída e configurações de DLSS.
 - Grava `engine_samples.csv` a cada 5 s: FPS médio, 1% low, tempo de frame, tempo de GPU etc.
-- 3 s após abrir, grava `run_config.json` com o valor **real** de cada configuração de DLSS.
+- 3 s após abrir, grava `run_config.json` com o valor **real** de cada configuração de DLSS
+  e com o **suporte de hardware** informado pelo próprio plugin da NVIDIA (DLSS-SR, DLSS-RR,
+  Frame Generation) e o modo ativo (ex.: `DLAA`, `Quality`; FG `On2X`). Se um recurso que o
+  teste usa não estiver disponível naquela GPU, o teste é abortado com o motivo.
+- Com Frame Generation, grava também o **FPS exibido** (inclui os frames gerados), medido
+  pelo plugin. Funciona no Windows e no Linux, sem depender do PresentMon.
 - Fecha sozinho quando o tempo acaba.
-- O HUD mostra o nome do teste, o tempo decorrido e a volta atual.
+- O HUD mostra o nome do teste, o tempo decorrido, a volta atual e o estado do DLSS.
 
 ### Testar no Editor (opcional)
 
@@ -444,6 +467,8 @@ C:\BenchmarkRuns\sessao_2026-10-20_14-00-00\
 | `avg_frametime_ms`, `p99_frametime_ms`, `max_frametime_ms` | Tempo de frame médio, percentil 99 e máximo |
 | `gpu_time_ms` | Tempo que a GPU levou no último frame, medido pela engine |
 | `game_thread_ms`, `render_thread_ms` | Tempo das threads de CPU (indica gargalo de CPU) |
+| `dlssg_fps` | FPS **exibido** com Frame Generation (frames renderizados + gerados); 0 sem FG |
+| `dlssg_frames_presented` | Frames exibidos por frame renderizado (ex.: 2 no modo 2x) |
 | `lap` | Volta atual no percurso da câmera |
 
 ### `system_samples.csv` (medido pelo Python, via NVML)
@@ -471,8 +496,13 @@ Para que a comparação entre os testes seja válida:
   aplicativo" e sem limite de FPS global.
 - **Windows:** plano de energia "Alto desempenho", atualizações pausadas, nenhum outro
   programa pesado aberto, notificações desligadas.
-- **FPS com Frame Generation:** compare os testes com FG pelo **FPS exibido** (PresentMon);
-  o FPS da engine conta só os frames renderizados.
+- **FPS com Frame Generation:** compare os testes com FG pelo **FPS exibido** (coluna
+  `dlssg_fps`, ou o PresentMon no Windows); o FPS da engine conta só os frames renderizados.
+- **Modo do Frame Generation fixo:** `r.Streamline.DLSSG.FramesToGenerate = 1` (2x) em todos
+  os testes com FG. A RTX 50 aceita 3x e 4x; se for usar, mude em `tests.json` e mantenha igual
+  em todas as máquinas.
+- **Ray Reconstruction:** o teste de RR desliga os denoisers da própria Unreal que a RR
+  substitui (sombras e reflexos do Lumen), como faz a função oficial do plugin.
 - **Registre tudo:** a pasta da sessão guarda a configuração exata; anote também modelo da
   GPU, driver e temperatura ambiente no seu trabalho.
 
@@ -506,7 +536,8 @@ teste. Não precisa recompilar nem reempacotar.
 | Problema | Causa provável e solução |
 |---|---|
 | `cvar ... nao existe no jogo` | O plugin correspondente não está habilitado (seção 7), ou o nome mudou na sua versão do plugin. Rode o jogo, abra o console (tecla `'` ou `~`), digite o início do nome (`r.NGX`, `r.Streamline`) e veja as opções; corrija em `tests.json`. Se for `t.IdleWhenNotForeground`, pode removê-lo de `base_cvars`. |
-| `pedido=1 atual=0` em `r.Streamline.DLSSG.Enable` | GPU sem suporte a Frame Generation (precisa de RTX 40+), jogo não está em DX12, ou "Hardware-accelerated GPU scheduling" desligado no Windows (Configurações → Sistema → Tela → Elementos gráficos). |
+| `Frame Generation nao esta disponivel nesta maquina: ...` | O texto depois dos dois-pontos é o motivo informado pela NVIDIA. `NotSupportedIncompatibleHardware`: GPU anterior à RTX 40. `NotSupportedHardewareSchedulingDisabled`: ligue o "Agendamento de GPU acelerado por hardware" (seção 7). `NotSupportedDriverOutOfDate`: atualize o driver. |
+| `run_config.json sem o bloco 'support'` | O jogo empacotado é de uma versão antiga do código: rode `apply`, `build` e `package` de novo. |
 | `O jogo nao gravou o run_config.json` | Na primeira abertura a compilação de shaders pode demorar; aumente `startup_timeout_s`. Veja também o `unreal_01.log` na pasta do teste. |
 | Erro no `build` | Copie o trecho com `error` do terminal. Os mais comuns: Editor aberto (Live Coding), Build Tools sem o MSVC/Windows SDK, ou versão do compilador (seção 2.3). |
 | `run.py check` não encontra a GPU | Atualize o driver NVIDIA e rode `pip install nvidia-ml-py` com o `.venv` ativo. |
@@ -621,7 +652,7 @@ Métricas analisadas:
 | `process_mem_mb` (memória do processo do jogo) | sobe |
 | `vram_used_mb`, `ram_used_mb` | sobe |
 | `avg_frametime_ms`, `p99_frametime_ms`, `gpu_time_ms`, `game_thread_ms`, `render_thread_ms` | sobe |
-| `avg_fps`, `low1_fps` | cai |
+| `avg_fps`, `low1_fps`, `dlssg_fps` (FPS exibido, só nos testes com FG) | cai |
 | `gpu_temp_c`, `clock_sm_mhz`, `power_w`, `gpu_util_pct`, `cpu_util_pct` | **contexto**: explicam a causa, não são envelhecimento |
 
 ### Como interpretar (pontos para a metodologia)

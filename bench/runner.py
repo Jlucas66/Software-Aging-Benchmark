@@ -88,8 +88,23 @@ def values_match(requested: str, actual: str) -> bool:
         return r == a
 
 
-def check_run_config(data: dict) -> list[str]:
-    """Devolve a lista de problemas (vazia = todos os cvars ficaram como pedido)."""
+# Recurso do DLSS -> (cvar que o liga, chave no bloco "support" do run_config.json, nome legivel)
+FEATURE_SUPPORT = [
+    ("r.NGX.DLSS.Enable", "dlss_sr", "DLSS Super Resolution/DLAA"),
+    ("r.NGX.DLSS.DenoiserMode", "dlss_rr", "DLSS Ray Reconstruction"),
+    ("r.Streamline.DLSSG.Enable", "dlssg", "DLSS Frame Generation"),
+]
+
+
+def _is_on(value) -> bool:
+    try:
+        return float(str(value).strip()) != 0
+    except ValueError:
+        return str(value).strip().lower() in ("true", "on")
+
+
+def check_run_config(data: dict, requested: dict | None = None) -> list[str]:
+    """Devolve a lista de problemas (vazia = cvars aplicados e recursos suportados)."""
     problems = []
     for item in data.get("cvars", []):
         name = item.get("name")
@@ -99,6 +114,20 @@ def check_run_config(data: dict) -> list[str]:
             problems.append(f"{name}: somente leitura em runtime (precisa ir no DefaultEngine.ini)")
         elif not values_match(item.get("requested", ""), item.get("actual", "")):
             problems.append(f"{name}: pedido={item.get('requested')} atual={item.get('actual')}")
+
+    # O valor do cvar pode ficar "1" mesmo numa GPU que nao suporta o recurso; por isso o
+    # jogo tambem pergunta ao plugin da NVIDIA se cada recurso esta disponivel.
+    requested = requested or {}
+    needed = [(key, label) for cvar, key, label in FEATURE_SUPPORT if _is_on(requested.get(cvar, "0"))]
+    support = data.get("support")
+    if needed and not isinstance(support, dict):
+        problems.append("run_config.json sem o bloco 'support': o jogo empacotado e de uma versao antiga "
+                        "do codigo (rode apply, build e package de novo)")
+    elif needed:
+        for key, label in needed:
+            status = support.get(key, "<ausente>")
+            if status != "Supported":
+                problems.append(f"{label} nao esta disponivel nesta maquina: {status}")
     return problems
 
 
@@ -241,9 +270,9 @@ class TestRunner:
                         summary["status"] = "aborted_no_run_config"
                         break
                 else:
-                    problems = check_run_config(data)
+                    problems = check_run_config(data, test.cvars)
                     summary["cvar_problems"] = problems
-                    summary["engine_info"] = {k: data.get(k) for k in ("gpu", "rhi", "resolution", "engine_version", "audit")}
+                    summary["engine_info"] = {k: data.get(k) for k in ("gpu", "rhi", "resolution", "engine_version", "support", "audit")}
                     if problems:
                         for p in problems:
                             self.log.error("cvar com problema: %s", p)
@@ -252,8 +281,11 @@ class TestRunner:
                             summary["status"] = "aborted_cvar_check"
                             break
                     else:
-                        self.log.info("Conferido: todos os %d cvars ficaram com o valor pedido (RHI %s, %s).",
-                                      len(data.get("cvars", [])), data.get("rhi"), data.get("resolution"))
+                        sup = data.get("support") or {}
+                        self.log.info("Conferido: %d cvars com o valor pedido (RHI %s, %s) | DLSS %s, FG %s | suporte SR=%s RR=%s FG=%s",
+                                      len(data.get("cvars", [])), data.get("rhi"), data.get("resolution"),
+                                      sup.get("dlss_mode"), sup.get("dlssg_mode"),
+                                      sup.get("dlss_sr"), sup.get("dlss_rr"), sup.get("dlssg"))
                         events("cvar_check_ok", f"rhi={data.get('rhi')} res={data.get('resolution')}")
 
                 # Espera o fim do teste
