@@ -1,25 +1,26 @@
 """Ponto de entrada do benchmark. Rode `python run.py --help` para ver os comandos.
 
 Fluxo tipico:
-    python run.py check                     # confere instalacao e caminhos
-    python run.py apply                     # copia o codigo C++ para o projeto Unreal
-    python run.py build                     # compila (Editor fechado!)
-    python run.py package                   # gera o .exe
+    python run.py check                         # confere instalacao e caminhos
+    python run.py build                         # compila o C++ (Editor fechado!)
+    python run.py package                       # gera o .exe
     python run.py run --tests all --minutes 3   # validacao rapida dos 7 testes
     python run.py run --tests all --hours 48    # bateria completa
-    python run.py report                    # (re)gera os graficos da ultima sessao
+    python run.py report                        # graficos e resumo da ultima sessao
+    python mann_kendall.py                      # teste de tendencia (software aging)
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bench.config import Config, is_windows
+from bench.config import Config
 
 
 def ok(msg):
@@ -46,84 +47,71 @@ def cmd_list(cfg: Config, args) -> int:
 
 def cmd_check(cfg: Config, args) -> int:
     problems = 0
-    print("\nPython e bibliotecas")
-    ok(f"Python {sys.version.split()[0]}") if sys.version_info >= (3, 10) else bad("Use Python 3.10 ou mais novo")
-    for mod, pkg in (("psutil", "psutil"), ("pynvml", "nvidia-ml-py"), ("pandas", "pandas"), ("matplotlib", "matplotlib")):
-        if importlib.util.find_spec(mod):
-            ok(pkg)
+
+    def need(cond: bool, good: str, badmsg: str):
+        nonlocal problems
+        if cond:
+            ok(good)
         else:
-            bad(f"{pkg} nao instalado -> pip install -r requirements.txt")
+            bad(badmsg)
             problems += 1
+        return cond
+
+    print("\nPython e bibliotecas")
+    need(sys.version_info >= (3, 10), f"Python {sys.version.split()[0]}", "Use Python 3.10 ou mais novo")
+    for mod, pkg in (("psutil", "psutil"), ("pynvml", "nvidia-ml-py"), ("pandas", "pandas"), ("matplotlib", "matplotlib")):
+        need(importlib.util.find_spec(mod) is not None, pkg, f"{pkg} nao instalado -> pip install -r requirements.txt")
 
     print("\nGPU")
     from bench.monitor import GpuReader
     gpu = GpuReader(cfg.bench["monitor"].get("gpu_index", 0))
-    if gpu.mode == "none":
-        bad("Nenhuma GPU NVIDIA encontrada (NVML e nvidia-smi indisponiveis)")
-        problems += 1
-    else:
-        ok(f"{gpu.name} | driver {gpu.driver} | leitura via {gpu.mode}")
-        sample = gpu.read()
-        info(f"agora: {sample.get('gpu_temp_c')} C, {sample.get('power_w')} W, clock SM {sample.get('clock_sm_mhz')} MHz")
+    if need(gpu.mode != "none", f"{gpu.name} | driver {gpu.driver} | leitura via {gpu.mode}",
+            "Nenhuma GPU NVIDIA encontrada (NVML e nvidia-smi indisponiveis)"):
+        s = gpu.read()
+        info(f"agora: {s.get('gpu_temp_c')} C, {s.get('gpu_power_w')} W, clock {s.get('gpu_clock_mhz')} MHz, VRAM {s.get('vram_mb')} MB")
 
-    print("\nUnreal Engine e projeto")
+    print("\nUnreal Engine")
     build_bat = cfg.engine_dir / "Engine" / "Build" / "BatchFiles" / "Build.bat"
-    ok(f"Engine em {cfg.engine_dir}") if build_bat.exists() else (bad(f"Engine nao encontrada em {cfg.engine_dir}"), None)
-    problems += 0 if build_bat.exists() else 1
-    if cfg.uproject.exists():
-        ok(f"Projeto: {cfg.uproject}")
-        plugins = list((cfg.project_dir / "Plugins").glob("**/*.uplugin")) if (cfg.project_dir / "Plugins").exists() else []
-        dlss = [p.stem for p in plugins if any(k in p.stem.lower() for k in ("dlss", "streamline", "nis"))]
-        ok(f"Plugins NVIDIA no projeto: {', '.join(sorted(dlss))}") if dlss else bad("Plugin DLSS nao encontrado em <projeto>/Plugins")
-        if dlss:
-            import json as _json
-            from bench.ue_build import REQUIRED_PLUGINS
-            try:
-                enabled = {p.get("Name") for p in _json.loads(cfg.uproject.read_text(encoding="utf-8-sig")).get("Plugins", [])
-                           if p.get("Enabled")}
-            except (OSError, ValueError):
-                enabled = set()
-            off = [n for n in REQUIRED_PLUGINS if n not in enabled]
-            ok("Plugins NVIDIA habilitados no projeto") if not off else bad(f"Plugins nao habilitados no .uproject: {', '.join(off)} (rode: python run.py apply)")
-        problems += 0 if dlss else 1
-        ini = cfg.project_dir / "Config" / "DefaultEngine.ini"
+    need(build_bat.exists(), f"Engine em {cfg.engine_dir}", f"Engine nao encontrada em {cfg.engine_dir} (confira 'engine_dir')")
+
+    print("\nProjeto UE5Benchmark")
+    proj = cfg.project_dir
+    if need(cfg.uproject.exists(), f"Projeto: {cfg.uproject}", f"Benchmark.uproject nao encontrado em {proj}"):
+        content = proj / "Content"
+        need(content.exists() and any(content.rglob("*.umap")), "Pasta Content com o mapa",
+             "Pasta Content vazia ou ausente: copie a Content do zip original do UE5-Benchmark (README, secao 5)")
+        from bench.ue_build import REQUIRED_PLUGINS
+        missing = [n for n in REQUIRED_PLUGINS if not (proj / "Plugins" / n / f"{n}.uplugin").exists()]
+        need(not missing, "Plugin DLSS da NVIDIA em Plugins/",
+             f"Faltam plugins em {proj / 'Plugins'}: {', '.join(missing)} (README, secao 6)")
+        try:
+            enabled = {p.get("Name") for p in json.loads(cfg.uproject.read_text(encoding="utf-8-sig")).get("Plugins", [])
+                       if p.get("Enabled")}
+        except (OSError, ValueError):
+            enabled = set()
+        off = [n for n in REQUIRED_PLUGINS if n not in enabled]
+        need(not off, "Plugins NVIDIA habilitados no .uproject", f"Plugins desabilitados no .uproject: {', '.join(off)}")
+        ini = proj / "Config" / "DefaultEngine.ini"
         text = ini.read_text(encoding="utf-8-sig", errors="ignore") if ini.exists() else ""
-        ok("DirectX 12 como RHI padrao") if "DefaultGraphicsRHI_DX12" in text else bad("RHI padrao nao e DX12 (rode: python run.py apply)")
-        src = cfg.project_dir / "Source" / "Benchmark" / "BenchmarkManager.cpp"
-        modified = src.exists() and "BenchCVars" in src.read_text(encoding="utf-8", errors="ignore")
-        ok("Codigo C++ do benchmark aplicado") if modified else bad("Codigo C++ original (rode: python run.py apply)")
-    else:
-        bad(f"Projeto nao encontrado em {cfg.project_dir}")
-        problems += 1
+        need("DefaultGraphicsRHI_DX12" in text, "DirectX 12 como RHI padrao", "DefaultEngine.ini sem DirectX 12")
+        src = proj / "Source" / "Benchmark" / "BenchmarkManager.cpp"
+        need(src.exists() and "BenchCVars" in src.read_text(encoding="utf-8", errors="ignore"),
+             "Codigo C++ do benchmark em Source/Benchmark", "Source/Benchmark sem o codigo do benchmark")
 
     print("\nJogo empacotado")
     exe = cfg.game_exe()
-    ok(f"Executavel: {exe}") if exe.exists() else info(f"Ainda nao empacotado (esperado em {exe})")
+    ok(f"Executavel: {exe}") if exe.exists() else info(f"Ainda nao empacotado (esperado em {exe}) -> python run.py package")
 
-    print("\nSaida e ferramentas")
+    print("\nResultados")
     try:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
         ok(f"Pasta de resultados: {cfg.output_dir}")
     except OSError as e:
         bad(f"Nao consegui criar {cfg.output_dir}: {e}")
         problems += 1
-    pm = cfg.bench["presentmon"]
-    if pm.get("enabled"):
-        ok(f"PresentMon: {pm['exe']}") if Path(pm["exe"]).exists() else (bad(f"PresentMon nao encontrado: {pm['exe']}"), None)
-        if is_windows():
-            import ctypes
-            admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
-            ok("Terminal como Administrador") if admin else bad("PresentMon precisa do terminal aberto como Administrador")
-    else:
-        info("PresentMon desligado (FPS exibido com Frame Generation nao sera medido)")
 
     print(f"\n{'Tudo certo.' if problems == 0 else f'{problems} problema(s) para resolver antes de rodar.'}")
     return 0 if problems == 0 else 1
-
-
-def cmd_apply(cfg: Config, args) -> int:
-    from bench.ue_build import apply_to_project
-    return apply_to_project(cfg, _console_logger())
 
 
 def cmd_build(cfg: Config, args) -> int:
@@ -137,7 +125,7 @@ def cmd_package(cfg: Config, args) -> int:
 
 
 def cmd_run(cfg: Config, args) -> int:
-    from bench.runner import new_session_dir, run_session, setup_logging
+    from bench.runner import run_session
 
     tests = cfg.select_tests(args.tests)
     if args.minutes is not None:
@@ -166,46 +154,32 @@ def cmd_run(cfg: Config, args) -> int:
     print(f"  Tempo total estimado  : {total_s / 3600:.1f} h  -> termina por volta de {end:%d/%m %H:%M}")
     print(f"  Amostragem            : a cada {cfg.bench['run']['sample_interval_s']} s")
     print(f"  Executavel            : {exe}")
+    print(f"  Resultados em         : {cfg.output_dir}")
     if not args.yes:
         if input("\nComecar? [s/N] ").strip().lower() not in ("s", "sim", "y", "yes"):
             print("Cancelado.")
             return 1
 
-    session_dir = new_session_dir(cfg)
-    log = setup_logging(session_dir)
-    log.info("Sessao: %s", session_dir)
-    try:
-        results = run_session(cfg, tests, duration_s, log, session_dir)
-    except KeyboardInterrupt:
-        log.warning("Sessao interrompida. Os dados ja gravados ficam em %s", session_dir)
-        results = []
-
-    try:
-        from bench.report import generate
-        generate(session_dir, float(cfg.bench["report"].get("warmup_minutes", 5)), log.info)
-    except Exception as e:  # o relatorio nunca deve esconder o resultado dos testes
-        log.error("Falha ao gerar o relatorio (rode 'python run.py report' depois): %s", e)
-
-    failed = [r for r in results if r.get("status") != "completed"]
-    for r in results:
-        log.info("  %-18s %s", r["test_name"], r["status"])
-    return 1 if failed or not results else 0
+    _, results = run_session(cfg, tests, duration_s)
+    failed = [r for r in results if r.get("status") != "completo"]
+    return 1 if failed or len(results) < len(tests) else 0
 
 
 def cmd_report(cfg: Config, args) -> int:
+    from bench.dataset import find_sessions
     from bench.report import generate
     warmup = args.warmup if args.warmup is not None else float(cfg.bench["report"].get("warmup_minutes", 5))
     if args.sessions:
         sessions = [Path(s) for s in args.sessions]
     else:
-        found = sorted(cfg.output_dir.glob("sessao_*"))
+        found = find_sessions(cfg.output_dir)
         if not found:
             print(f"Nenhuma sessao em {cfg.output_dir}")
             return 1
-        sessions = found if args.all_sessions else [found[-1]]
+        sessions = found if args.all_sessions else [max(found, key=lambda p: p.stat().st_mtime)]
     out_dir = None
     if len(sessions) > 1:
-        out_dir = cfg.output_dir / f"comparacao_{datetime.now():%Y-%m-%d_%H-%M-%S}"
+        out_dir = cfg.output_dir / f"comparacao_{datetime.now():%Y-%m-%d_%H-%M}"
     return 0 if generate(sessions, warmup, out_dir=out_dir) else 1
 
 
@@ -229,7 +203,6 @@ def main() -> int:
 
     sub.add_parser("list", help="mostra os testes e os cvars de cada um")
     sub.add_parser("check", help="confere instalacao, GPU, projeto e caminhos")
-    sub.add_parser("apply", help="copia o codigo C++ para o projeto e ajusta o DefaultEngine.ini")
     sub.add_parser("build", help="compila o codigo C++ (feche o Editor antes)")
     sub.add_parser("package", help="gera o jogo empacotado (.exe)")
 
@@ -240,14 +213,14 @@ def main() -> int:
     g.add_argument("--minutes", type=float, help="duracao de cada teste em minutos")
     r.add_argument("--yes", action="store_true", help="nao pedir confirmacao")
 
-    rep = sub.add_parser("report", help="gera os graficos (padrao: sessao mais recente)")
+    rep = sub.add_parser("report", help="gera resumo e graficos (padrao: sessao mais recente)")
     rep.add_argument("sessions", nargs="*", help="uma ou mais pastas de sessao (varias = comparacao entre elas)")
     rep.add_argument("--all-sessions", action="store_true", help="junta todas as sessoes da pasta de resultados")
     rep.add_argument("--warmup", type=float, help="minutos iniciais a descartar")
 
     args = p.parse_args()
     cfg = Config(Path(args.config) if args.config else None, Path(args.tests_file) if args.tests_file else None)
-    handlers = {"list": cmd_list, "check": cmd_check, "apply": cmd_apply, "build": cmd_build,
+    handlers = {"list": cmd_list, "check": cmd_check, "build": cmd_build,
                 "package": cmd_package, "run": cmd_run, "report": cmd_report}
     return handlers[args.command](cfg, args)
 

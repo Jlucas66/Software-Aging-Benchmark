@@ -1,19 +1,25 @@
-"""Gera graficos e tabela-resumo a partir de uma sessao de testes.
+"""Relatorio descritivo de uma ou mais sessoes (so quando voce roda `python run.py report`).
 
-Para cada teste:  <teste>/grafico_teste.png  (FPS, temperatura, potencia e clock ao longo do tempo)
-Para a sessao:    resumo.csv, comparacao.png, fps_distribuicao.png, fps_ao_longo_do_tempo.png
+Grava em <sessao>/relatorio/ (ou BenchmarkRuns/comparacao_<data>/ com varias sessoes):
+    resumo.csv        uma linha por teste: medias, inicio x fim das metricas de aging, contexto
+    <teste>.png       FPS, memoria do jogo, handles, VRAM, temperatura e clock ao longo do tempo
+    comparacao.png    os testes lado a lado
+
+A analise estatistica de tendencia (Mann-Kendall) fica em mann_kendall.py.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")  # gera arquivos PNG sem abrir janela
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+from .dataset import TestResult, find_sessions, load_session  # noqa: E402
 
 # Paleta categorica (ordem fixa: o teste N sempre tem a mesma cor em todos os graficos)
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
@@ -31,282 +37,187 @@ plt.rcParams.update({
 })
 
 
-def _break_gaps(df: pd.DataFrame, col: str):
-    """Devolve (x, y) com NaN nos buracos (ex.: jogo reiniciado), para a linha nao ligar os pontos."""
-    x = df["hours"].to_numpy(dtype=float)
-    y = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
-    if len(x) < 3:
-        return x, y
-    dx = pd.Series(x).diff()
-    gap = dx > 3 * dx.median()
-    if not gap.any():
-        return x, y
-    import numpy as np
-    idx = np.where(gap.to_numpy())[0]
-    return np.insert(x, idx, np.nan), np.insert(y, idx, np.nan)
-
-
 def color_for(test_id: int) -> str:
     return SERIES[(int(test_id) - 1) % len(SERIES)]
 
 
-# ----------------------------------------------------------------------------- leitura
-
-def _read_csv(path: Path) -> pd.DataFrame | None:
-    if not path.exists() or path.stat().st_size == 0:
-        return None
-    df = pd.read_csv(path)
-    if df.empty:
-        return None
-    df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True, format="ISO8601")
-    return df.sort_values("timestamp_utc").reset_index(drop=True)
-
-
-def _read_presentmon(folder: Path) -> pd.DataFrame | None:
-    rows = []
-    for f in sorted(folder.glob("pm_*.csv")):
-        try:
-            pm = pd.read_csv(f, usecols=lambda c: c in ("MsBetweenDisplayChange", "MsBetweenPresents", "FrameType"))
-        except Exception:
-            continue
-        col = "MsBetweenDisplayChange" if "MsBetweenDisplayChange" in pm else "MsBetweenPresents"
-        if col not in pm:
-            continue
-        ms = pd.to_numeric(pm[col], errors="coerce")
-        ms = ms[ms > 0]
-        if ms.empty:
-            continue
-        rows.append({
-            "timestamp_utc": pd.Timestamp(f.stat().st_mtime, unit="s", tz="UTC"),
-            "displayed_fps": 1000.0 / ms.mean(),
-            "displayed_low1_fps": 1000.0 / ms.quantile(0.99),
-        })
-    return pd.DataFrame(rows) if rows else None
+def _xy(df: pd.DataFrame, col: str, smooth_min: float = 0):
+    """(horas, valores) com um buraco entre execucoes, para a linha nao ligar um reinicio.
+    smooth_min > 0: media movel de N minutos (calculada dentro de cada execucao)."""
+    x = df["horas"].to_numpy(dtype=float)
+    v = pd.to_numeric(df[col], errors="coerce")
+    if smooth_min > 0 and len(df) > 2:
+        step_s = float(df["horas"].diff().median() * 3600) or 5.0
+        n = max(1, int(round(smooth_min * 60 / step_s)))
+        v = v.groupby(df["execucao"]).transform(lambda s: s.rolling(n, min_periods=1, center=True).mean())
+    y = v.to_numpy(dtype=float)
+    if "execucao" in df and df["execucao"].nunique() > 1:
+        idx = np.where(df["execucao"].diff().fillna(0).to_numpy() != 0)[0]
+        x, y = np.insert(x, idx, np.nan), np.insert(y, idx, np.nan)
+    return x, y
 
 
-def load_test(test_dir: Path, warmup_min: float) -> dict | None:
-    summary_path = test_dir / "summary.json"
-    if not summary_path.exists():
-        return None
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    eng = _read_csv(test_dir / "engine_samples.csv")
-    sysd = _read_csv(test_dir / "system_samples.csv")
-    pm = _read_presentmon(test_dir / "presentmon")
-
-    t0_candidates = [d["timestamp_utc"].iloc[0] for d in (eng, sysd) if d is not None]
-    if not t0_candidates:
-        return {"summary": summary, "engine": None, "system": None, "presentmon": pm, "dir": test_dir}
-    t0 = min(t0_candidates)
-    cut = t0 + pd.Timedelta(minutes=warmup_min)
-    for d in (eng, sysd, pm):
-        if d is not None:
-            d["hours"] = (d["timestamp_utc"] - t0).dt.total_seconds() / 3600.0
-            d["after_warmup"] = d["timestamp_utc"] >= cut
-    return {"summary": summary, "engine": eng, "system": sysd, "presentmon": pm, "dir": test_dir}
+def _no_data(ax):
+    ax.text(0.5, 0.5, "sem dados", transform=ax.transAxes, ha="center", va="center", color=MUTED)
+    ax.tick_params(left=False, labelleft=False)
+    ax.grid(False)
 
 
 # ----------------------------------------------------------------------------- estatisticas
 
-def _mean(df, col):
-    if df is None or col not in df:
-        return None
-    s = pd.to_numeric(df.loc[df["after_warmup"], col], errors="coerce").dropna()
+def _mean(s: pd.Series):
+    s = pd.to_numeric(s, errors="coerce").dropna()
     return round(float(s.mean()), 2) if not s.empty else None
 
 
-def _mean_positive(df, col):
-    """Media so dos valores > 0 (ex.: FPS exibido do Frame Generation, que e 0 com o FG desligado)."""
-    if df is None or col not in df:
-        return None
-    s = pd.to_numeric(df.loc[df["after_warmup"], col], errors="coerce")
-    s = s[s > 0]
-    return round(float(s.mean()), 2) if not s.empty else None
-
-
-def _max(df, col):
-    if df is None or col not in df:
-        return None
-    s = pd.to_numeric(df.loc[df["after_warmup"], col], errors="coerce").dropna()
-    return round(float(s.max()), 2) if not s.empty else None
-
-
-def compute_stats(t: dict) -> dict:
-    s, eng, sysd, pm = t["summary"], t["engine"], t["system"], t["presentmon"]
+def compute_stats(t: TestResult, warmup_min: float) -> dict:
+    m = t.meta
+    dlss = m.get("dlss") or {}
     row = {
-        "teste": s["test_name"], "id": s["test_id"], "status": s.get("status"),
-        "horas": round(s.get("wall_elapsed_s", 0) / 3600, 2), "reinicios": s.get("restarts", 0),
-        "fps_medio": _mean(eng, "avg_fps"), "fps_1pct_low": _mean(eng, "low1_fps"),
-        "frametime_ms": _mean(eng, "avg_frametime_ms"), "frametime_p99_ms": _mean(eng, "p99_frametime_ms"),
-        "gpu_time_ms": _mean(eng, "gpu_time_ms"),
-        "fps_exibido_dlssg": _mean_positive(eng, "dlssg_fps"),
-        "fps_exibido_presentmon": _mean(pm, "displayed_fps"),
-        "gpu_util_pct": _mean(sysd, "gpu_util_pct"), "vram_mb": _mean(sysd, "vram_used_mb"),
-        "temp_media_c": _mean(sysd, "gpu_temp_c"), "temp_max_c": _max(sysd, "gpu_temp_c"),
-        "potencia_media_w": _mean(sysd, "power_w"), "potencia_max_w": _max(sysd, "power_w"),
-        "clock_sm_medio_mhz": _mean(sysd, "clock_sm_mhz"), "cpu_util_pct": _mean(sysd, "cpu_util_pct"),
+        "plataforma": t.platform, "sessao": t.session, "id": t.id, "teste": t.name,
+        "status": m.get("status"), "horas": m.get("horas"), "reinicios": m.get("reinicios", 0),
+        "amostras": len(t.df), "modo_dlss": dlss.get("dlss_mode"), "modo_fg": dlss.get("dlssg_mode"),
     }
-    if row["fps_medio"] and row["potencia_media_w"]:
-        row["fps_por_watt"] = round(row["fps_medio"] / row["potencia_media_w"], 3)
-    if sysd is not None:
-        w = sysd[sysd["after_warmup"]]
-        if "energy_j" in w and pd.to_numeric(w["energy_j"], errors="coerce").notna().sum() > 1:
-            e = pd.to_numeric(w["energy_j"], errors="coerce").dropna()
-            row["energia_kwh"] = round((e.iloc[-1] - e.iloc[0]) / 3.6e6, 3)
-        tr = w["throttle_reasons"].fillna("").astype(str) if "throttle_reasons" in w else pd.Series(dtype=str)
-        if len(tr) and tr.str.len().sum() > 0:
-            row["pct_limitado_potencia"] = round(100 * tr.str.contains("power").mean(), 1)
-            row["pct_limitado_temperatura"] = round(100 * tr.str.contains("thermal").mean(), 1)
+    df = t.df
+    if df.empty:
+        return row
+    w = df[df["horas"] >= warmup_min / 60.0]
+    if w.empty:
+        w = df
+    for col, name in (("fps", "fps_medio"), ("fps_exibido", "fps_exibido_medio"),
+                      ("frametime_p99_ms", "frametime_p99_ms"), ("gpu_time_ms", "gpu_time_ms"),
+                      ("render_thread_ms", "render_thread_ms"), ("proc_cpu_pct", "cpu_jogo_pct"),
+                      ("gpu_util_pct", "gpu_util_pct")):
+        if col in w:
+            row[name] = _mean(w[col])
+
+    # Inicio x fim: media da primeira e da ultima janela (1 h, ou 10% do teste se ele for curto).
+    # E so descritivo; a tendencia estatistica fica com o Mann-Kendall.
+    span = float(w["horas"].max() - w["horas"].min())
+    win = min(1.0, max(span * 0.1, 1e-6))
+    first = w[w["horas"] <= w["horas"].min() + win]
+    last = w[w["horas"] >= w["horas"].max() - win]
+    for col in ("proc_private_mb", "proc_mem_mb", "proc_handles", "proc_threads", "vram_mb", "fps"):
+        if col in w:
+            a, b = _mean(first[col]), _mean(last[col])
+            row[f"{col}_inicio"], row[f"{col}_fim"] = a, b
+
+    if "gpu_temp_c" in w:
+        row["temp_media_c"] = _mean(w["gpu_temp_c"])
+        row["temp_max_c"] = round(float(pd.to_numeric(w["gpu_temp_c"], errors="coerce").max()), 1)
+    if "gpu_clock_mhz" in w:
+        row["clock_medio_mhz"] = _mean(w["gpu_clock_mhz"])
+    if "gpu_power_w" in w:
+        row["potencia_media_w"] = _mean(w["gpu_power_w"])
+    for col, name in (("throttle_power", "pct_tempo_limite_potencia"), ("throttle_thermal", "pct_tempo_limite_termico")):
+        if col in w:
+            v = pd.to_numeric(w[col], errors="coerce").dropna()
+            row[name] = round(100 * float(v.mean()), 1) if not v.empty else None
     return row
 
 
 # ----------------------------------------------------------------------------- graficos
 
-def plot_test(t: dict, out_png: Path) -> None:
-    s, eng, sysd, pm = t["summary"], t["engine"], t["system"], t["presentmon"]
-    panels = [
-        ("FPS", eng, [("avg_fps", "FPS médio (renderizado)", SERIES[0]), ("low1_fps", "1% low", SERIES[1])], "FPS"),
-        ("Temperatura da GPU", sysd, [("gpu_temp_c", None, SERIES[0])], "°C"),
-        ("Potência da GPU", sysd, [("power_w", None, SERIES[0])], "W"),
-        ("Clock SM da GPU", sysd, [("clock_sm_mhz", None, SERIES[0])], "MHz"),
-    ]
-    fig, axes = plt.subplots(len(panels), 1, figsize=(11, 10), sharex=True)
-    for ax, (title, df, series, unit) in zip(axes, panels):
+PANELS = [
+    ("FPS", [("fps", "Renderizado"), ("fps_exibido", "Exibido (Frame Generation)")], "FPS"),
+    ("Memória do jogo", [("proc_private_mb", "Privada (Private Bytes)"), ("proc_mem_mb", "Física (Working Set)")], "MB"),
+    ("Handles abertos pelo jogo", [("proc_handles", None)], ""),
+    ("VRAM usada", [("vram_mb", None)], "MB"),
+    ("Temperatura da GPU", [("gpu_temp_c", None)], "°C"),
+    ("Clock da GPU", [("gpu_clock_mhz", None)], "MHz"),
+]
+
+
+def plot_test(t: TestResult, warmup_min: float, out_png: Path) -> None:
+    df = t.df
+    fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
+    for ax, (title, series, unit) in zip(axes.flat, PANELS):
         ax.set_title(title)
         ax.set_ylabel(unit)
-        if df is None:
-            ax.text(0.5, 0.5, "sem dados", transform=ax.transAxes, ha="center", color=MUTED)
-            continue
-        for col, label, color in series:
-            if col in df:
-                ax.plot(*_break_gaps(df, col), color=color, label=label)
-        if title == "FPS" and df is not None and "dlssg_fps" in df and (pd.to_numeric(df["dlssg_fps"], errors="coerce") > 0).any():
-            ax.plot(*_break_gaps(df, "dlssg_fps"), color=SERIES[3], label="FPS exibido (Frame Generation)")
-        if title == "FPS" and pm is not None:
-            ax.scatter(pm["hours"], pm["displayed_fps"], s=18, color=SERIES[2], label="FPS exibido (PresentMon)", zorder=3)
-        if title == "FPS":
-            ax.legend(loc="lower left", bbox_to_anchor=(0.08, 0.98), ncol=3)
-        warm = df.loc[~df["after_warmup"], "hours"]
-        if not warm.empty:
-            ax.axvspan(0, warm.max(), color=GRID, alpha=0.5, lw=0)
-    axes[-1].set_xlabel("Horas desde o início do teste (faixa cinza = aquecimento, fora das estatísticas)")
-    fig.suptitle(f"{s['test_name']}  ·  {s.get('status')}  ·  {s.get('restarts', 0)} reinício(s)",
-                 x=0.01, ha="left", color=INK, fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    fig.savefig(out_png, dpi=130)
+        drawn = 0
+        for k, (col, label) in enumerate(series):
+            if col in df and pd.to_numeric(df[col], errors="coerce").notna().any():
+                ax.plot(*_xy(df, col), color=SERIES[k], lw=0.6, alpha=0.25)            # cada amostra
+                ax.plot(*_xy(df, col, smooth_min=5), color=SERIES[k], label=label)   # media de 5 min
+                drawn += 1
+        if not drawn:
+            _no_data(ax)
+        elif drawn > 1:
+            ax.legend(loc="best")
+        if warmup_min > 0:
+            ax.axvspan(0, warmup_min / 60.0, color=GRID, alpha=0.5, lw=0)
+    for ax in axes[-1]:
+        ax.set_xlabel("Horas desde o início do teste")
+    dlss = t.meta.get("dlss") or {}
+    fig.suptitle(f"{t.name}  ·  {t.platform}  ·  {t.meta.get('status')}  ·  {t.meta.get('reinicios', 0)} reinício(s)"
+                 f"  ·  DLSS {dlss.get('dlss_mode', '-')}, FG {dlss.get('dlssg_mode', '-')}",
+                 x=0.01, ha="left", color=INK, fontsize=12, fontweight="bold")
+    fig.text(0.01, 0.005, "Linha forte = média móvel de 5 min; clara = cada amostra. Faixa cinza = aquecimento "
+             "(fora das médias). Linha interrompida = o jogo foi reaberto.",
+             color=MUTED, fontsize=8)
+    fig.tight_layout(rect=(0, 0.02, 1, 0.96))
+    fig.savefig(out_png, dpi=120)
     plt.close(fig)
 
 
 def plot_comparison(stats: pd.DataFrame, out_png: Path) -> None:
-    metrics = [("fps_medio", "FPS médio (renderizado)"), ("potencia_media_w", "Potência média (W)"),
-               ("temp_media_c", "Temperatura média (°C)"), ("fps_por_watt", "Eficiência (FPS por watt)")]
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    stats = stats.copy()
+    if "proc_private_mb_inicio" in stats:
+        stats["mem_delta"] = stats["proc_private_mb_fim"] - stats["proc_private_mb_inicio"]
+    metrics = [("fps_medio", "FPS médio (renderizado)"), ("mem_delta", "Memória privada do jogo: fim − início (MB)"),
+               ("temp_media_c", "Temperatura média da GPU (°C)"), ("potencia_media_w", "Potência média da GPU (W)")]
+    labels = stats["rotulo"]
     colors = [color_for(i) for i in stats["id"]]
+    fig, axes = plt.subplots(2, 2, figsize=(12, 2.2 + 0.45 * len(stats) * 2))
     for ax, (col, title) in zip(axes.flat, metrics):
         ax.set_title(title)
         ax.grid(axis="y", visible=False)
         ax.set_axisbelow(True)
         if col not in stats or stats[col].isna().all():
-            ax.text(0.5, 0.5, "sem dados", transform=ax.transAxes, ha="center", color=MUTED)
+            _no_data(ax)
             continue
-        vals = stats[col].fillna(0)
-        bars = ax.barh(stats["teste"], vals, color=colors, height=0.6)
+        vals = stats[col].astype(float).fillna(0)
+        bars = ax.barh(labels, vals, color=colors, height=0.6)
         ax.invert_yaxis()
         for b, v in zip(bars, vals):
-            ax.text(b.get_width(), b.get_y() + b.get_height() / 2, f" {v:g}", va="center", color=INK_2, fontsize=8)
+            ax.text(b.get_width(), b.get_y() + b.get_height() / 2, f" {v:.4g}", va="center", color=INK_2, fontsize=8)
         ax.margins(x=0.15)
+        ax.axvline(0, color=AXIS, lw=0.8)
     fig.tight_layout()
-    fig.savefig(out_png, dpi=130)
-    plt.close(fig)
-
-
-def plot_distribution(tests: list[dict], out_png: Path) -> None:
-    data, labels, colors = [], [], []
-    for t in tests:
-        eng = t["engine"]
-        if eng is None:
-            continue
-        data.append(pd.to_numeric(eng.loc[eng["after_warmup"], "avg_fps"], errors="coerce").dropna())
-        labels.append(t["summary"]["test_name"])
-        colors.append(color_for(t["summary"]["test_id"]))
-    if not data:
-        return
-    fig, ax = plt.subplots(figsize=(12, 5))
-    bp = ax.boxplot(data, vert=False, patch_artist=True, showfliers=False, widths=0.5)
-    for patch, c in zip(bp["boxes"], colors):
-        patch.set_facecolor(c)
-        patch.set_alpha(0.85)
-        patch.set_edgecolor(SURFACE)
-    for med in bp["medians"]:
-        med.set_color(INK)
-    ax.set_axisbelow(True)
-    ax.set_yticks(range(1, len(labels) + 1), labels)
-    ax.invert_yaxis()
-    ax.set_title("Distribuição do FPS médio por amostra (após aquecimento)")
-    ax.set_xlabel("FPS")
-    fig.tight_layout()
-    fig.savefig(out_png, dpi=130)
-    plt.close(fig)
-
-
-def plot_timeline(tests: list[dict], out_png: Path) -> None:
-    fig, ax = plt.subplots(figsize=(12, 5))
-    plotted = False
-    for t in tests:
-        eng = t["engine"]
-        if eng is None:
-            continue
-        # media movel de 5 min para enxergar tendencia (degradacao termica etc.)
-        fps = pd.to_numeric(eng["avg_fps"], errors="coerce")
-        window = max(1, int(300 / max(1.0, eng["elapsed_s"].diff().median() or 5)))
-        smooth = eng.assign(_fps=fps.rolling(window, min_periods=1).mean())
-        ax.plot(*_break_gaps(smooth, "_fps"), color=color_for(t["summary"]["test_id"]), label=t["summary"]["test_name"])
-        plotted = True
-    if not plotted:
-        plt.close(fig)
-        return
-    ax.set_title("FPS ao longo do tempo (média móvel de 5 min)")
-    ax.set_xlabel("Horas desde o início de cada teste")
-    ax.set_ylabel("FPS")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=4)
-    fig.tight_layout()
-    fig.savefig(out_png, dpi=130)
+    fig.savefig(out_png, dpi=120)
     plt.close(fig)
 
 
 # ----------------------------------------------------------------------------- entrada
 
-def generate(session_dirs, warmup_min: float = 5.0, log=print, out_dir: Path | None = None) -> Path | None:
-    """Gera o relatorio. `session_dirs` pode ser uma pasta de sessao ou uma lista delas
-    (para comparar testes rodados em sessoes diferentes, ex.: um teste de 48h por vez)."""
-    if isinstance(session_dirs, (str, Path)):
-        session_dirs = [Path(session_dirs)]
-    session_dirs = [Path(d) for d in session_dirs]
-    out_dir = Path(out_dir) if out_dir else session_dirs[0]
+def generate(paths, warmup_min: float = 5.0, out_dir: Path | None = None, log=print) -> Path | None:
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    sessions = [s for p in paths for s in find_sessions(Path(p))]
+    if not sessions:
+        log(f"Nenhuma sessao (sessao.json) encontrada em {', '.join(map(str, paths))}")
+        return None
+    tests: list[TestResult] = []
+    for s in sessions:
+        tests.extend(load_session(s)[1])
+    if not tests:
+        log("Nenhum teste nas sessoes informadas.")
+        return None
+
+    out_dir = Path(out_dir) if out_dir else sessions[0] / "relatorio"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    tests = []
-    for sd in session_dirs:
-        for d in sorted(p for p in sd.iterdir() if p.is_dir()):
-            t = load_test(d, warmup_min)
-            if t:
-                tests.append(t)
-    if not tests:
-        log(f"Nenhum teste encontrado em {', '.join(map(str, session_dirs))}")
-        return None
-    tests.sort(key=lambda t: (t["summary"]["test_id"], t["summary"].get("started_utc", "")))
-    # mesmo teste repetido em sessoes diferentes: diferencia pelo nome da sessao
-    names = [t["summary"]["test_name"] for t in tests]
-    for t in tests:
-        if names.count(t["summary"]["test_name"]) > 1:
-            t["summary"]["test_name"] += f" ({t['dir'].parent.name.replace('sessao_', '')})"
-
-    for t in tests:
-        plot_test(t, t["dir"] / "grafico_teste.png")
-
-    stats = pd.DataFrame([compute_stats(t) for t in tests])
+    stats = pd.DataFrame([compute_stats(t, warmup_min) for t in tests])
+    many = len(sessions) > 1
+    stats.insert(0, "rotulo", [f"{r.teste} ({r.plataforma}, {r.sessao})" if many else r.teste for r in stats.itertuples()])
+    stats = stats.sort_values(["id", "plataforma", "sessao"]).reset_index(drop=True)
     stats.to_csv(out_dir / "resumo.csv", index=False, encoding="utf-8-sig")
-    plot_comparison(stats, out_dir / "comparacao.png")
-    plot_distribution(tests, out_dir / "fps_distribuicao.png")
-    plot_timeline(tests, out_dir / "fps_ao_longo_do_tempo.png")
-    log(f"Relatorio gerado em {out_dir} (resumo.csv + graficos PNG)")
-    return out_dir / "resumo.csv"
+
+    for t in tests:
+        if not t.df.empty:
+            name = f"{t.name}__{t.platform}__{t.session}.png" if many else f"{t.name}.png"
+            plot_test(t, warmup_min, out_dir / name)
+    if len(stats) > 1:
+        plot_comparison(stats, out_dir / "comparacao.png")
+    log(f"Relatorio gerado em {out_dir}")
+    return out_dir

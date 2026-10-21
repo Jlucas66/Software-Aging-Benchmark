@@ -1,23 +1,24 @@
 // Configuracao geral do benchmark.
 // Linhas que comecam com // sao comentarios (o programa ignora).
-// Use barras normais (/) nos caminhos do Windows, ex.: "C:/UE5Benchmark".
+// Use barras normais (/) nos caminhos. Caminho sem "C:/" no comeco e contado a partir
+// da pasta do repositorio (ex.: "UE5Benchmark" = C:/Pesquisa/Software-Aging-Benchmark/UE5Benchmark).
 {
   "unreal": {
     // Pasta onde a Unreal Engine 5.4 foi instalada pelo Epic Games Launcher
     "engine_dir": "C:/Program Files/Epic Games/UE_5.4",
-    // Pasta do projeto UE5-Benchmark (onde fica o Benchmark.uproject)
-    "project_dir": "C:/UE5Benchmark",
-    // Pasta onde o jogo empacotado (.exe) sera gerado
+    // Projeto UE5-Benchmark (onde fica o Benchmark.uproject), dentro do repositorio
+    "project_dir": "UE5Benchmark",
+    // Onde o jogo empacotado (.exe) e gerado. Fica FORA do repositorio (sao varios GB)
     "package_dir": "C:/UE5BenchmarkBuild",
-    // Ray tracing por hardware: necessario para o DLSS Ray Reconstruction ter efeito.
-    // Fica ligado em TODOS os testes, para que eles sejam comparaveis.
+    // Ray tracing por hardware (ja ligado no DefaultEngine.ini do projeto); so registrado no sessao.json
     "enable_hardware_ray_tracing": true
   },
 
   "game": {
     // Vazio = detecta sozinho dentro de package_dir
     "exe": "",
-    "resolution": [2560, 1440],
+    // Use a resolucao nativa do monitor (ex.: [2560, 1080] em casa)
+    "resolution": [2560, 1080],
     // "fullscreen" ou "windowed"
     "window_mode": "fullscreen",
     // Frame Generation exige DirectX 12
@@ -30,43 +31,30 @@
   "run": {
     // Duracao padrao de cada teste (pode ser trocada na hora com --hours ou --minutes)
     "default_hours": 48,
-    // Intervalo de amostragem do jogo e do monitor de sistema, em segundos
+    // Intervalo entre amostras, em segundos
     "sample_interval_s": 5,
     // Pausa entre testes para a GPU esfriar (deixa os testes comparaveis)
-    "cooldown_minutes": 10,
+    "cooldown_minutes": 1,
     // Quantas vezes reabrir o jogo se ele fechar sozinho no meio de um teste
     "max_restarts": 20,
     // true = aborta o teste se algum cvar de DLSS nao ficar com o valor pedido
     "strict_cvar_check": true,
-    // Quanto esperar o jogo abrir e gravar o run_config.json (primeira abertura compila shaders)
+    // Quanto esperar o jogo abrir (a primeira abertura compila shaders)
     "startup_timeout_s": 600,
-    "output_dir": "C:/BenchmarkRuns"
+    // Pasta dos resultados, dentro do repositorio
+    "output_dir": "BenchmarkRuns"
   },
 
   "monitor": {
-    // Monitor embutido (GPU via NVML + CPU/RAM via psutil)
-    "builtin": true,
     "gpu_index": 0,
-    // Seu proprio script de monitoramento, se quiser rodar junto. {out_dir} vira a pasta do teste.
+    // Seu proprio script de monitoramento, se quiser rodar junto. {out_dir} vira a pasta da sessao.
     // Exemplo: ["python", "C:/scripts/meu_monitor.py", "--output", "{out_dir}/meu_monitor.csv"]
     "external_cmd": null
   },
 
-  "presentmon": {
-    // PresentMon mede os frames EXIBIDOS (inclui os frames gerados pelo Frame Generation).
-    // A engine so enxerga os frames renderizados. Recomendado ligar para todos os testes.
-    "enabled": true,
-    "exe": "C:/Tools/PresentMon/PresentMon.exe",
-    // Grava uma janela de sample_seconds a cada every_minutes (arquivo por frame e muito grande para 48h)
-    "every_minutes": 10,
-    "sample_seconds": 30,
-    "args": ["--process_name", "{process}", "--output_file", "{output}",
-             "--timed", "{seconds}", "--terminate_after_timed",
-             "--no_console_stats", "--stop_existing_session"]
-  },
-
   "report": {
-    // Minutos iniciais descartados nos graficos/estatisticas (aquecimento, compilacao de shaders)
+    // Minutos iniciais fora das medias do relatorio (aquecimento, compilacao de shaders).
+    // O Mann-Kendall tem a sua propria opcao (--aquecimento, padrao 30 min).
     "warmup_minutes": 5
   }
 }

@@ -1,5 +1,24 @@
 {
+  // Os arquivos de config/ aceitam comentarios //
   "files.associations": {
     "**/config/*.json": "jsonc"
+  },
+  // Pastas grandes da Unreal: o VS Code nao precisa vigiar nem pesquisar nelas
+  "files.watcherExclude": {
+    "**/UE5Benchmark/Content/**": true,
+    "**/UE5Benchmark/Plugins/**": true,
+    "**/UE5Benchmark/Binaries/**": true,
+    "**/UE5Benchmark/Intermediate/**": true,
+    "**/UE5Benchmark/Saved/**": true,
+    "**/UE5Benchmark/DerivedDataCache/**": true,
+    "**/BenchmarkRuns/**/.tmp/**": true
+  },
+  "search.exclude": {
+    "**/UE5Benchmark/Content": true,
+    "**/UE5Benchmark/Plugins": true,
+    "**/UE5Benchmark/Binaries": true,
+    "**/UE5Benchmark/Intermediate": true,
+    "**/UE5Benchmark/Saved": true,
+    "**/UE5Benchmark/DerivedDataCache": true
   }
 }

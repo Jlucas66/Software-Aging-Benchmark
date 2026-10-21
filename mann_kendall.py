@@ -5,12 +5,14 @@ pasta nova.
 
 Exemplos
 --------
-# Comparar Windows x Linux (cada --sessao pode ser uma sessao, um teste ou uma
-# pasta com varias sessoes; o texto antes do '=' e o rotulo usado nas tabelas)
-python mann_kendall.py --sessao windows=C:/BenchmarkRuns --sessao linux=D:/resultados_linux
+# Tudo o que esta em BenchmarkRuns/ (o rotulo de cada sessao e a plataforma: windows/linux)
+python mann_kendall.py
 
 # Uma sessao so
-python mann_kendall.py --sessao windows=C:/BenchmarkRuns/sessao_2026-10-20_14-00-00
+python mann_kendall.py --sessao BenchmarkRuns/2026-10-21_09-30_windows
+
+# Rotulo escolhido por voce (texto antes do '='), ex.: comparar duas maquinas
+python mann_kendall.py --sessao casa=BenchmarkRuns/2026-10-21_09-30_windows --sessao lab=D:/lab/BenchmarkRuns
 
 # Um CSV qualquer (ex.: o seu proprio script de monitoramento)
 python mann_kendall.py --csv meu_monitor.csv --coluna-tempo timestamp --colunas ram_mb,vram_mb
@@ -30,23 +32,32 @@ from pathlib import Path
 import pandas as pd
 
 from bench.aging import (METRICS, Params, analyze_csv, analyze_test, comparison_table,
-                         console_summary, find_test_dirs, load_test, plot_test)
+                         console_summary, from_result, plot_test)
+from bench.dataset import find_sessions, load_session
 
 
-def parse_session_arg(value: str) -> tuple[str, Path]:
-    if "=" in value:
+def parse_session_arg(value: str) -> tuple[str | None, Path]:
+    """'rotulo=pasta' ou so 'pasta' (rotulo = plataforma gravada no sessao.json)."""
+    if "=" in value and not Path(value).exists():
         label, path = value.split("=", 1)
         return label.strip(), Path(path.strip())
-    p = Path(value)
-    return p.name, p
+    return None, Path(value)
+
+
+def default_results_dir() -> Path:
+    try:
+        from bench.config import Config
+        return Config().output_dir
+    except (SystemExit, Exception):
+        return Path(__file__).resolve().parent / "BenchmarkRuns"
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Teste de Mann-Kendall para software aging sobre os resultados do benchmark",
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     src = ap.add_argument_group("entrada")
-    src.add_argument("--sessao", action="append", default=[], metavar="ROTULO=PASTA",
-                     help="pasta de resultados (pode repetir: uma por plataforma)")
+    src.add_argument("--sessao", action="append", default=[], metavar="[ROTULO=]PASTA",
+                     help="sessao ou pasta com varias sessoes (pode repetir) [todas em BenchmarkRuns/]")
     src.add_argument("--csv", type=Path, help="analisar um CSV qualquer em vez das sessoes")
     src.add_argument("--coluna-tempo", default="timestamp", help="(com --csv) coluna de data/hora ou de segundos")
     src.add_argument("--colunas", default="", help="(com --csv) colunas a analisar, separadas por virgula")
@@ -63,12 +74,13 @@ def main() -> int:
     met.add_argument("--max-lag", type=int, default=None, help="maior lag na correcao de Hamed-Rao [todos]")
     met.add_argument("--metricas", default="", help=f"metricas a analisar, separadas por virgula [todas: {', '.join(METRICS)}]")
 
-    ap.add_argument("--saida", type=Path, help="pasta de saida [./analises/mann_kendall_<data>]")
+    ap.add_argument("--saida", type=Path, help="pasta de saida [BenchmarkRuns/analises/mann_kendall_<data>]")
     ap.add_argument("--sem-graficos", action="store_true", help="nao gerar os PNGs")
     args = ap.parse_args()
 
+    results_dir = default_results_dir()
     if not args.sessao and not args.csv:
-        ap.error("informe --sessao ROTULO=PASTA (uma ou mais) ou --csv ARQUIVO")
+        args.sessao = [str(results_dir)]
 
     params = Params(window=str(args.janela), warmup_min=args.aquecimento, alpha=args.alfa,
                     method=args.metodo, max_lag=args.max_lag)
@@ -78,7 +90,7 @@ def main() -> int:
         if unknown and not args.csv:
             ap.error(f"metricas desconhecidas: {', '.join(unknown)}. Opcoes: {', '.join(METRICS)}")
 
-    out = args.saida or Path.cwd() / "analises" / f"mann_kendall_{datetime.now():%Y-%m-%d_%H-%M-%S}"
+    out = args.saida or results_dir / "analises" / f"mann_kendall_{datetime.now():%Y-%m-%d_%H-%M-%S}"
     out.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
 
@@ -92,19 +104,23 @@ def main() -> int:
     else:
         for value in args.sessao:
             label, path = parse_session_arg(value)
-            dirs = find_test_dirs(path)
-            if not dirs:
-                print(f"  aviso: nenhum teste (summary.json) encontrado em {path}")
-                continue
-            for d in dirs:
-                test = load_test(d, label)
-                print(f"  [{label}] {test.session}/{test.test_name}: {len(test.segments)} trecho(s)")
-                test_rows, plot_data = analyze_test(test, params)
-                rows.extend(test_rows)
-                if plot_data and not args.sem_graficos:
-                    gdir = out / "graficos"
-                    gdir.mkdir(exist_ok=True)
-                    plot_test(test, plot_data, gdir / f"{label}__{test.session}__{test.test_name}.png", params)
+            sessions = find_sessions(path)
+            if not sessions:
+                print(f"  aviso: nenhuma sessao (sessao.json) encontrada em {path}")
+            for sdir in sessions:
+                meta, results = load_session(sdir)
+                for result in results:
+                    test = from_result(result, label or meta.get("plataforma", sdir.name))
+                    if test.df.empty:
+                        print(f"  [{test.label}] {test.session}/{test.test_name}: sem amostras, ignorado")
+                        continue
+                    print(f"  [{test.label}] {test.session}/{test.test_name}: {len(test.segments)} execucao(oes) do jogo")
+                    test_rows, plot_data = analyze_test(test, params)
+                    rows.extend(test_rows)
+                    if plot_data and not args.sem_graficos:
+                        gdir = out / "graficos"
+                        gdir.mkdir(exist_ok=True)
+                        plot_test(test, plot_data, gdir / f"{test.label}__{test.session}__{test.test_name}.png", params)
 
     if not rows:
         print("Nada para analisar.")

@@ -1,3 +1,34 @@
+# ---------------------------------------------------------------- Python
 .venv/
 __pycache__/
 *.pyc
+
+# ---------------------------------------------------------------- Resultados
+# Os CSVs, sessao.json, log.txt e graficos entram no Git. So os temporarios ficam de fora.
+BenchmarkRuns/**/.tmp/
+BenchmarkRuns/**/*.json.tmp
+
+# ---------------------------------------------------------------- Projeto Unreal
+# Entram no Git: Benchmark.uproject, Config/, Source/ (o codigo C++ do benchmark) e README.
+# Ficam de fora:
+#  - pastas que a Unreal gera sozinha ao compilar/abrir (recriadas pelo "python run.py build")
+UE5Benchmark/Binaries/
+UE5Benchmark/Intermediate/
+UE5Benchmark/Saved/
+UE5Benchmark/DerivedDataCache/
+UE5Benchmark/.vs/
+UE5Benchmark/.vscode/
+UE5Benchmark/*.sln
+UE5Benchmark/*.code-workspace
+UE5Benchmark/_bench_backup/
+#  - Content: ~2,8 GB de mapas e texturas, iguais aos do UE5-Benchmark original (o GitHub
+#    limita cada envio a 2 GB). Em outra maquina, copie a Content do zip original.
+UE5Benchmark/Content/
+#  - Plugins: o DLSS da NVIDIA tem licenca propria e binarios grandes (o ProjectCleaner
+#    do projeto original vem desabilitado e nao e usado).
+#    Em outra maquina, baixe o plugin 8.6.1 e coloque em UE5Benchmark/Plugins/.
+UE5Benchmark/Plugins/
+
+# Arquivos que o UE5-Benchmark original grava ao lado do projeto quando roda no Editor
+BenchmarkResultsPerFrame.csv
+BenchmarkResults.txt

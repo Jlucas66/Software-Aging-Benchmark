@@ -1,13 +1,12 @@
 """Analise de software aging sobre os resultados do benchmark (teste de Mann-Kendall).
 
-Le as pastas de resultado ja gravadas (nao depende do jogo nem do orquestrador),
-prepara cada serie (descarta aquecimento, separa trechos entre reinicios, agrega por
-janela de tempo) e aplica bench.mk_stats.mann_kendall em cada metrica.
+Le os resultados ja gravados (nao depende do jogo nem do orquestrador), prepara cada
+serie (descarta aquecimento, separa as execucoes do jogo quando houve reinicio, agrega
+por janela de tempo) e aplica bench.mk_stats.mann_kendall em cada metrica.
 """
 
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .dataset import TestResult
 from .mk_stats import MIN_POINTS, mann_kendall
 
 # Direcao esperada quando ha envelhecimento:
@@ -22,25 +22,30 @@ from .mk_stats import MIN_POINTS, mann_kendall
 #   "queda"    = a metrica piora quando cai (FPS)
 #   None       = metrica de contexto (temperatura, clock...): explica a causa, nao e aging
 METRICS = {
-    "process_mem_mb":   ("engine", "MB",  "aumento", "Memória do processo do jogo"),
-    "vram_used_mb":     ("system", "MB",  "aumento", "VRAM usada"),
-    "ram_used_mb":      ("system", "MB",  "aumento", "RAM usada (sistema)"),
-    "avg_frametime_ms": ("engine", "ms",  "aumento", "Tempo médio de frame"),
-    "p99_frametime_ms": ("engine", "ms",  "aumento", "Tempo de frame (p99)"),
-    "gpu_time_ms":      ("engine", "ms",  "aumento", "Tempo de GPU por frame"),
-    "game_thread_ms":   ("engine", "ms",  "aumento", "Tempo da game thread"),
-    "render_thread_ms": ("engine", "ms",  "aumento", "Tempo da render thread"),
-    "avg_fps":          ("engine", "FPS", "queda",   "FPS médio"),
-    "low1_fps":         ("engine", "FPS", "queda",   "FPS 1% low"),
-    "dlssg_fps":        ("engine", "FPS", "queda",   "FPS exibido (Frame Generation)"),
-    "gpu_temp_c":       ("system", "°C",  None,      "Temperatura da GPU"),
-    "clock_sm_mhz":     ("system", "MHz", None,      "Clock SM da GPU"),
-    "power_w":          ("system", "W",   None,      "Potência da GPU"),
-    "gpu_util_pct":     ("system", "%",   None,      "Uso da GPU"),
-    "cpu_util_pct":     ("system", "%",   None,      "Uso da CPU"),
+    # recursos que o jogo prende ao longo do tempo
+    "proc_mem_mb":      ("MB",  "aumento", "Memória física do jogo (Working Set)"),
+    "proc_private_mb":  ("MB",  "aumento", "Memória privada do jogo (Private Bytes)"),
+    "proc_handles":     ("",    "aumento", "Handles abertos pelo jogo"),
+    "proc_threads":     ("",    "aumento", "Threads do jogo"),
+    "proc_cpu_pct":     ("%",   "aumento", "CPU usada pelo jogo"),
+    "vram_mb":          ("MB",  "aumento", "VRAM usada"),
+    "ram_mb":           ("MB",  "aumento", "RAM usada (sistema)"),
+    # desempenho
+    "fps":              ("FPS", "queda",   "FPS (renderizado)"),
+    "fps_exibido":      ("FPS", "queda",   "FPS exibido (Frame Generation)"),
+    "frametime_p99_ms": ("ms",  "aumento", "Tempo de frame p99 (travadas)"),
+    "gpu_time_ms":      ("ms",  "aumento", "Tempo de GPU por frame"),
+    "game_thread_ms":   ("ms",  "aumento", "Tempo da game thread"),
+    "render_thread_ms": ("ms",  "aumento", "Tempo da render thread"),
+    # contexto: ajudam a separar aging de aquecimento/limite de potencia
+    "gpu_temp_c":       ("°C",  None,      "Temperatura da GPU"),
+    "gpu_clock_mhz":    ("MHz", None,      "Clock da GPU"),
+    "gpu_power_w":      ("W",   None,      "Potência da GPU"),
+    "gpu_util_pct":     ("%",   None,      "Uso da GPU"),
 }
-PLOT_METRICS = ["process_mem_mb", "vram_used_mb", "avg_frametime_ms", "p99_frametime_ms"]
-CONSOLE_METRICS = ["process_mem_mb", "vram_used_mb", "avg_frametime_ms", "p99_frametime_ms", "avg_fps", "dlssg_fps"]
+PLOT_METRICS = ["proc_private_mb", "proc_mem_mb", "proc_handles", "vram_mb", "fps", "frametime_p99_ms"]
+CONSOLE_METRICS = ["proc_private_mb", "proc_mem_mb", "proc_handles", "proc_threads", "vram_mb",
+                   "fps", "fps_exibido", "frametime_p99_ms"]
 
 
 @dataclass
@@ -62,9 +67,7 @@ class TestData:
     session: str
     test_id: int
     test_name: str
-    path: Path
-    engine: pd.DataFrame | None
-    system: pd.DataFrame | None
+    df: pd.DataFrame
     t0: pd.Timestamp | None
     segments: list[tuple[pd.Timestamp, pd.Timestamp]]
     restarts: int
@@ -72,27 +75,8 @@ class TestData:
 
 # ----------------------------------------------------------------------------- leitura
 
-def _read(path: Path, time_col: str = "timestamp_utc") -> pd.DataFrame | None:
-    if not path.exists() or path.stat().st_size == 0:
-        return None
-    df = pd.read_csv(path)
-    if df.empty or time_col not in df:
-        return None
-    df[time_col] = pd.to_datetime(df[time_col], utc=True, format="ISO8601")
-    return df.sort_values(time_col).reset_index(drop=True)
-
-
-def find_test_dirs(path: Path) -> list[Path]:
-    """Aceita a pasta de um teste, de uma sessao ou uma pasta com varias sessoes."""
-    path = Path(path)
-    found = set()
-    for pattern in ("summary.json", "*/summary.json", "*/*/summary.json"):
-        found.update(p.parent for p in path.glob(pattern))
-    return sorted(found)
-
-
 def split_segments(times: pd.Series, gap_s: float | None = None):
-    """Separa em trechos continuos (um reinicio do jogo deixa um buraco nas amostras)."""
+    """Separa em trechos continuos pelo buraco nas amostras (usado so com --csv)."""
     if times is None or len(times) == 0:
         return []
     dt = times.diff().dt.total_seconds()
@@ -105,21 +89,16 @@ def split_segments(times: pd.Series, gap_s: float | None = None):
     return [(times.iloc[s], times.iloc[e]) for s, e in zip(starts, ends)]
 
 
-def load_test(test_dir: Path, label: str) -> TestData:
-    summary = json.loads((test_dir / "summary.json").read_text(encoding="utf-8"))
-    engine = _read(test_dir / "engine_samples.csv")
-    system = _read(test_dir / "system_samples.csv")
-    starts = [d["timestamp_utc"].iloc[0] for d in (engine, system) if d is not None]
-    # Os trechos vem das amostras do jogo: o monitor de sistema continua gravando
-    # enquanto o jogo esta fechado entre um crash e a reabertura.
-    reference = engine if engine is not None else system
-    segments = split_segments(reference["timestamp_utc"]) if reference is not None else []
-    return TestData(
-        label=label, session=test_dir.parent.name, test_id=int(summary.get("test_id", 0)),
-        test_name=summary.get("test_name", test_dir.name), path=test_dir,
-        engine=engine, system=system, t0=min(starts) if starts else None,
-        segments=segments, restarts=max(0, len(segments) - 1),
-    )
+def from_result(result: TestResult, label: str) -> TestData:
+    """Cada execucao do jogo vira um trecho (um reinicio zera a memoria do processo)."""
+    df = result.df
+    if df.empty:
+        return TestData(label, result.session, result.id, result.name, df, None, [], 0)
+    # inicio do teste = momento da 1a amostra menos as horas que ja tinham passado
+    t0 = df["timestamp_utc"].iloc[0] - pd.Timedelta(hours=float(df["horas"].iloc[0]))
+    segments = [(g["timestamp_utc"].iloc[0], g["timestamp_utc"].iloc[-1])
+                for _, g in df.groupby("execucao", sort=True)]
+    return TestData(label, result.session, result.id, result.name, df, t0, segments, max(0, len(segments) - 1))
 
 
 # ----------------------------------------------------------------------------- preparo
@@ -139,7 +118,7 @@ def prepare_series(df: pd.DataFrame, column: str, segments, t0, params: Params, 
                    .dropna().reset_index())
             seg.columns = ["t", "v"]
         hours = (seg["t"] - t0).dt.total_seconds().to_numpy() / 3600.0
-        out.append((f"trecho {k}", hours, seg["v"].to_numpy(dtype=float)))
+        out.append((f"execucao {k}", hours, seg["v"].to_numpy(dtype=float)))
     return out
 
 
@@ -155,6 +134,13 @@ def _row_base(test: TestData, metric: str, unit: str, direction, desc: str, segm
 def analyze_one(hours: np.ndarray, values: np.ndarray, params: Params, direction) -> dict:
     if len(values) < MIN_POINTS:
         return {"n": len(values), "sinal_de_envelhecimento": "dados insuficientes"}
+    if np.ptp(values) == 0:  # valor nunca mudou (ex.: numero de threads fixo)
+        return {"n": len(values), "horas_analisadas": round(float(hours.max() - hours.min()), 3),
+                "tendencia_original": "constante", "tendencia_hamed_rao": "constante",
+                "tendencia_decisao": "constante", "sen_por_hora": 0.0, "sen_intercepto": float(values[0]),
+                "valor_inicial_sen": float(values[0]), "variacao_total": 0.0, "variacao_pct": 0.0,
+                "p_original": float("nan"), "p_hamed_rao": float("nan"),
+                "sinal_de_envelhecimento": "contexto" if direction is None else "nao"}
     r = mann_kendall(values, hours, alpha=params.alpha, max_lag=params.max_lag)
     decision = r.trend_hr if params.method == "hamed_rao" else r.trend
     if params.method == "hamed_rao" and not math.isfinite(r.z_hr):
@@ -197,13 +183,13 @@ def analyze_test(test: TestData, params: Params) -> tuple[list[dict], dict]:
     for metric in params.metrics:
         if metric not in METRICS:
             continue
-        source, unit, direction, desc = METRICS[metric]
-        df = test.engine if source == "engine" else test.system
-        if df is None or metric not in df:
+        unit, direction, desc = METRICS[metric]
+        df = test.df
+        if metric not in df:
             continue
         numeric = pd.to_numeric(df[metric], errors="coerce")
         if numeric.notna().sum() == 0 or (numeric.fillna(0) == 0).all():
-            continue  # sem dados (ex.: FPS do Frame Generation num teste sem FG)
+            continue  # sem dados (ex.: fps_exibido sem Frame Generation)
         parts = prepare_series(df, metric, test.segments, test.t0, params)
         if not parts:
             continue
@@ -235,8 +221,8 @@ def analyze_csv(path: Path, time_col: str, columns: list[str], label: str, param
     df = df.sort_values(time_col).reset_index(drop=True)
     segments = split_segments(df[time_col])
     t0 = df[time_col].iloc[0]
-    fake = TestData(label=label, session=path.parent.name, test_id=0, test_name=path.stem, path=path.parent,
-                    engine=None, system=None, t0=t0, segments=segments, restarts=max(0, len(segments) - 1))
+    fake = TestData(label=label, session=path.parent.name, test_id=0, test_name=path.stem, df=df,
+                    t0=t0, segments=segments, restarts=max(0, len(segments) - 1))
     rows = []
     for col in columns:
         if col not in df:
@@ -288,9 +274,9 @@ def console_summary(results: pd.DataFrame, params: Params) -> str:
         restarts = int(grp["reinicios_no_teste"].iloc[0])
         lines.append(f"\n[{label}] {test}" + (
             f"  (atencao: {restarts} reinicio(s); o reinicio zera a memoria, entao o resultado"
-            f" de cada trecho e o mais confiavel)" if restarts else ""))
+            f" de cada execucao e o mais confiavel)" if restarts else ""))
         segs = results[(results["rotulo"] == label) & (results["teste"] == test) & (results["trecho"] != "completo")]
-        for metric in CONSOLE_METRICS + [m for m in grp["metrica"] if m not in CONSOLE_METRICS and METRICS.get(m, (0, 0, 1))[2] == "aumento"]:
+        for metric in CONSOLE_METRICS + [m for m in grp["metrica"] if m not in CONSOLE_METRICS and METRICS.get(m, (0, 1))[1] == "aumento"]:
             r = grp[grp["metrica"] == metric]
             if r.empty:
                 continue
@@ -298,10 +284,10 @@ def console_summary(results: pd.DataFrame, params: Params) -> str:
             if restarts and metric in CONSOLE_METRICS:
                 for _, sr in segs[segs["metrica"] == metric].iterrows():
                     lines.append("  " + fmt_row(f"  {sr['trecho']}", sr))
-        clock = grp[grp["metrica"] == "clock_sm_mhz"]
+        clock = grp[grp["metrica"] == "gpu_clock_mhz"]
         temp = grp[grp["metrica"] == "gpu_temp_c"]
         if not clock.empty and clock.iloc[0]["tendencia_decisao"] == "decrescente":
-            lines.append(f"   ! clock SM em queda ({clock.iloc[0]['variacao_pct']:+.2f}%): perda de FPS pode ser termica/potencia, nao aging.")
+            lines.append(f"   ! clock da GPU em queda ({clock.iloc[0]['variacao_pct']:+.2f}%): perda de FPS pode ser termica/potencia, nao aging.")
         if not temp.empty and temp.iloc[0]["tendencia_decisao"] == "crescente":
             lines.append(f"   ! temperatura da GPU subindo ({temp.iloc[0]['variacao_total']:+.1f} °C no periodo).")
     return "\n".join(lines)
@@ -318,7 +304,7 @@ def plot_test(test: TestData, plot_data: dict, out_png: Path, params: Params) ->
     p_key = "p_hamed_rao" if params.method == "hamed_rao" else "p_original"
     for ax, metric in zip(axes.flat, metrics):
         parts, res, seg_rows = plot_data[metric]
-        _, unit, _, desc = METRICS[metric]
+        unit, _, desc = METRICS[metric]
         for k, (_, h, v) in enumerate(parts):
             ax.plot(h, v, color=SERIES[0], lw=1.2, label="Média por janela" if k == 0 else None)
         # Sem reinicio: uma reta de Sen. Com reinicio: uma reta por trecho (o reinicio
@@ -332,12 +318,12 @@ def plot_test(test: TestData, plot_data: dict, out_png: Path, params: Params) ->
                 ax.plot(hh, r["sen_intercepto"] + r["sen_por_hora"] * hh, color=SERIES[1], lw=1.6,
                         ls="--", label=None if drawn else "Inclinação de Sen")
                 drawn = True
-        ax.set_title(f"{desc} ({unit})", pad=16)
+        ax.set_title(f"{desc} ({unit})" if unit else desc, pad=16)
         if not seg_rows and math.isfinite(res.get("sen_por_hora", float("nan"))):
             info = (f"{res['tendencia_decisao']} · p={fmt_p(res[p_key])} · "
                     f"Sen {res['sen_por_hora']:+.3g} {unit}/h · {res['variacao_pct']:+.2f}% no período")
         elif seg_rows:
-            info = "por trecho: " + " | ".join(
+            info = "por execução: " + " | ".join(
                 f"{r.get('tendencia_decisao', 'n/d')} {r.get('sen_por_hora', float('nan')):+.3g} {unit}/h" for r in seg_rows)
         else:
             info = "dados insuficientes"
