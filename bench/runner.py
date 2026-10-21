@@ -33,6 +33,7 @@ except ImportError:  # pragma: no cover
 
 from .config import Config, TestDef, is_windows, platform_name
 from .monitor import ExternalMonitor, GpuReader, TestMonitor
+from .proton import ProtonLauncher, win_path
 
 # Desliga as atualizacoes automaticas (OTA) da NVIDIA dentro do jogo. Sem isso, o driver pode
 # carregar versoes do Frame Generation/DLSS baixadas pela internet em vez das do plugin, e cada
@@ -47,6 +48,8 @@ VERSION_PATTERNS = {
     "plugin_streamline": r"Loaded Streamline plugin version (\S+)",
 }
 MACHINE_PATTERN = r"LogInit: OS: (.+?), CPU: (.+?), GPU: (.+)$"
+RT_ON_MARKER = "Ray tracing is enabled"
+RT_OFF_MARKER = "Ray tracing is disabled"
 
 FINISH_TOLERANCE_S = 60      # saida do jogo ate 60 s antes do fim conta como "terminou normalmente"
 FORCE_KILL_GRACE_S = 180     # se o jogo nao fechar sozinho ate 3 min depois do fim, e encerrado
@@ -57,9 +60,27 @@ TMP_DIR = ".tmp"
 
 @contextmanager
 def keep_system_awake(log):
-    """Impede o Windows de suspender ou desligar a tela durante o teste."""
+    """Impede o computador de suspender ou desligar a tela durante o teste."""
     if not is_windows():
-        yield
+        # Linux: systemd-inhibit segura a suspensao enquanto o processo "sleep" estiver vivo
+        inhibitor = None
+        if shutil.which("systemd-inhibit"):
+            inhibitor = subprocess.Popen(["systemd-inhibit", "--what=idle:sleep:shutdown", "--who=benchmark",
+                                          "--why=teste de software aging", "--mode=block", "sleep", "infinity"],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            if inhibitor.poll() is None:
+                log.info("Suspensao automatica do Linux bloqueada durante os testes (systemd-inhibit).")
+            else:
+                inhibitor = None
+        if inhibitor is None:
+            log.warning("Nao consegui bloquear a suspensao automatica: desligue a suspensao e o "
+                        "bloqueio de tela nas configuracoes do Linux antes de testes longos.")
+        try:
+            yield
+        finally:
+            if inhibitor is not None:
+                inhibitor.terminate()
         return
     ES_CONTINUOUS, ES_SYSTEM_REQUIRED, ES_DISPLAY_REQUIRED = 0x80000000, 0x00000001, 0x00000002
     try:
@@ -219,6 +240,8 @@ class Session:
             },
             "testes": [],
         }
+        if not is_windows():
+            self.data["configuracao"]["proton"] = ProtonLauncher(cfg.bench.get("linux")).info()
         self.save()
 
     def add_versions(self, log_text: str):
@@ -258,6 +281,11 @@ class TestRunner:
         self.gpu = gpu
         self.log = log
         self.exe = cfg.game_exe()
+        self.proton = None if is_windows() else ProtonLauncher(cfg.bench.get("linux"))
+
+    def _path_arg(self, p: Path) -> str:
+        """No Linux o jogo roda dentro do Wine e enxerga o disco como Z:."""
+        return p.as_posix() if self.proton is None else win_path(p)
 
     def _build_command(self, test: TestDef, raw_dir: Path, duration_s: float, launch_n: int):
         game = self.cfg.bench["game"]
@@ -266,9 +294,9 @@ class TestRunner:
             f"-BenchPhase={test.name}",
             f"-BenchDuration={int(duration_s)}",
             f"-BenchInterval={run['sample_interval_s']}",
-            f'-BenchOutDir="{raw_dir.as_posix()}"',
+            f'-BenchOutDir="{self._path_arg(raw_dir)}"',
             f"-BenchCVars={test.cvars_arg()}",
-            f'-ABSLOG="{(raw_dir / f"unreal_{launch_n:02d}.log").as_posix()}"',
+            f'-ABSLOG="{self._path_arg(raw_dir / f"unreal_{launch_n:02d}.log")}"',
         ]
         res = game.get("resolution")
         if res:
@@ -288,7 +316,7 @@ class TestRunner:
             # A Unreal le os parametros no formato -Chave="valor com espaco"; por isso a
             # linha de comando e montada manualmente em vez de usar uma lista.
             return f'"{self.exe}" ' + " ".join(tokens)
-        return [str(self.exe), *[t.replace('"', "") for t in tokens]]
+        return self.proton.command(self.exe, tokens)
 
     @staticmethod
     def _wait_run_config(proc, path: Path, launched_at: float, timeout: float):
@@ -341,6 +369,21 @@ class TestRunner:
                           len(data.get("cvars", [])), data.get("rhi"), data.get("resolution"),
                           sup.get("dlss_mode"), sup.get("dlssg_mode"))
 
+        # Ray tracing por hardware (o Ray Reconstruction depende dele). No Linux, o DXR e
+        # traduzido pelo VKD3D-Proton; se nao estiver disponivel a Unreal desliga sozinha.
+        if self.cfg.bench["unreal"].get("enable_hardware_ray_tracing", True):
+            if RT_OFF_MARKER in log_text:
+                entry["ray_tracing"] = False
+                line = next(ln for ln in log_text.splitlines() if RT_OFF_MARKER in ln)
+                msg = "ray tracing por hardware desligado pela Unreal: " + line.split(RT_OFF_MARKER, 1)[1].strip(" .")
+                self.log.error(msg)
+                entry["problemas"].append(msg)
+                if strict:
+                    entry["status"] = "abortado (sem ray tracing)"
+                    return False
+            elif RT_ON_MARKER in log_text:
+                entry["ray_tracing"] = True
+
         ota = find_ota_lines(log_text)
         if ota:
             entry["ota_ativa"] = True
@@ -362,7 +405,7 @@ class TestRunner:
             "arquivo": f"{test.name}.csv", "status": "rodando",
             "inicio": datetime.now().astimezone().isoformat(timespec="seconds"), "fim": None,
             "horas": 0.0, "execucoes": 0, "reinicios": 0, "amostras": 0,
-            "dlss": {}, "ota_ativa": False, "problemas": [], "logs": [],
+            "dlss": {}, "ray_tracing": None, "ota_ativa": False, "problemas": [], "logs": [],
         }
         self.session.data["testes"].append(entry)
         self.session.save()
@@ -396,7 +439,11 @@ class TestRunner:
                 cmd = self._build_command(test, raw_dir, remaining, n)
                 launched_at = time.time()
                 self.log.info("Abrindo o jogo (execucao %d, faltam %.2f h)", n, remaining / 3600)
-                proc = subprocess.Popen(cmd)
+                if self.proton is None:
+                    proc = subprocess.Popen(cmd)
+                else:
+                    self.log.debug("Comando: %s", " ".join(cmd))
+                    proc = subprocess.Popen(cmd, env=self.proton.env())
                 monitor.new_launch(proc.pid, n)
                 self.session.save()
 
@@ -424,6 +471,10 @@ class TestRunner:
                         break
                     time.sleep(2.0)
 
+                if self.proton is not None:
+                    kill_tree(proc)
+                    if ProtonLauncher.kill_leftovers(self.exe.name):
+                        self.log.info("Processos do jogo que sobraram no Wine foram fechados.")
                 if not crashed:
                     break
                 entry["reinicios"] += 1
@@ -439,6 +490,8 @@ class TestRunner:
         finally:
             if proc is not None:
                 kill_tree(proc)
+            if self.proton is not None:
+                ProtonLauncher.kill_leftovers(self.exe.name)
             time.sleep(0.5)
             monitor.stop()
             external.stop()

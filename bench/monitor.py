@@ -19,6 +19,7 @@ import io
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -166,16 +167,19 @@ class GameProcess:
     def __init__(self, exe_name: str):
         self.exe_name = exe_name.lower()
         self.root_pid: int | None = None
+        self.attached_at = 0.0
         self.proc = None
         self.ncpu = (psutil.cpu_count() or 1) if psutil else 1
 
     def attach(self, pid: int):
         self.root_pid = pid
+        self.attached_at = time.time()
         self.proc = None
 
     def _find(self):
-        """O processo aberto pelo orquestrador ou, se ele for so um lancador (ex.: Proton),
-        o processo filho com o nome do executavel."""
+        """O processo do jogo: o proprio processo aberto pelo orquestrador (Windows) ou, quando
+        ele e so um lancador (Linux: umu-run -> Proton -> Wine), o processo com o nome do .exe.
+        Nunca mede o lancador no lugar do jogo: sem o jogo, as colunas do processo ficam vazias."""
         if psutil is None or self.root_pid is None:
             return None
         try:
@@ -188,9 +192,17 @@ class GameProcess:
                         return child
                 except psutil.Error:
                     continue
-            return root
         except psutil.Error:
-            return None
+            pass
+        # O Wine pode criar o processo fora da arvore do lancador: procura pelo nome,
+        # so entre os processos abertos depois desta execucao.
+        for p in psutil.process_iter(["name", "create_time"]):
+            try:
+                if (p.info["name"] or "").lower() == self.exe_name and p.info["create_time"] >= self.attached_at - 5:
+                    return p
+            except psutil.Error:
+                continue
+        return None
 
     def read(self) -> dict:
         if self.proc is None or not self.proc.is_running():

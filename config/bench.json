@@ -45,6 +45,25 @@
     "output_dir": "BenchmarkRuns"
   },
 
+  // So usado no Linux: o mesmo jogo empacotado no Windows, aberto pelo Proton
+  "linux": {
+    // Pasta do jogo copiada do Windows (a C:/UE5BenchmarkBuild inteira)
+    "package_dir": "~/UE5BenchmarkBuild",
+    // Lancador do Proton fora da Steam (umu-launcher)
+    "launcher": "umu-run",
+    // Pasta do Proton usado. Versao FIXA durante toda a pesquisa (anote no trabalho).
+    // Troque GE-ProtonXX-YY pelo nome da pasta que voce extraiu.
+    "proton_path": "~/.local/share/Steam/compatibilitytools.d/GE-ProtonXX-YY",
+    // Prefixo do Wine so do benchmark (criado sozinho na primeira execucao)
+    "wine_prefix": "~/.local/share/bench-prefix",
+    "env": {
+      // Mostra a NVAPI ao jogo: sem isso o DLSS nao aparece
+      "PROTON_ENABLE_NVAPI": "1",
+      // Nao deixa o Proton baixar versoes novas do DLSS (o mesmo que o OTA desligado)
+      "PROTON_ENABLE_NGX_UPDATER": "0"
+    }
+  },
+
   "monitor": {
     "gpu_index": 0,
     // Seu proprio script de monitoramento, se quiser rodar junto. {out_dir} vira a pasta da sessao.

@@ -82,7 +82,7 @@ class Config:
     def _path(value: str) -> Path:
         if re.match(r"^[A-Za-z]:[\\/]", value):  # "C:/..." e absoluto mesmo fora do Windows
             return Path(value)
-        p = Path(value).expanduser()
+        p = Path(os.path.expandvars(value)).expanduser()
         return p if p.is_absolute() else (ROOT / p).resolve()
 
     @property
@@ -104,6 +104,9 @@ class Config:
 
     @property
     def package_dir(self) -> Path:
+        # No Linux, o jogo empacotado no Windows fica onde o bloco "linux" disser
+        if not is_windows() and (self.bench.get("linux") or {}).get("package_dir"):
+            return self._path(self.bench["linux"]["package_dir"])
         return self._path(self.bench["unreal"]["package_dir"])
 
     @property

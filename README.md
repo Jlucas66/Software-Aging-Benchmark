@@ -23,6 +23,7 @@ Este guia não pressupõe experiência com Unreal Engine ou C++.
 13. [Cuidados de metodologia](#13-cuidados-de-metodologia)
 14. [Alterar os testes ou o código](#14-alterar-os-testes-ou-o-código)
 15. [Solução de problemas](#15-solução-de-problemas)
+16. [Linux (Proton)](#16-linux-proton)
 
 ---
 
@@ -214,6 +215,9 @@ Com o Editor da Unreal **fechado**:
 python run.py build      # compila o C++ (alguns minutos). Termina com "Result: Succeeded"
 python run.py package    # gera o .exe (de 30 min a 2 h; fica "parado" no cook, é normal)
 ```
+
+Isso só é feito **uma vez, numa máquina Windows**. O Windows do laboratório e o Linux usam
+a mesma pasta do jogo, copiada (veja o `COMANDOS.md`), e não precisam da Unreal.
 
 O `package` termina com `BUILD SUCCESSFUL` e gera
 `C:\UE5BenchmarkBuild\Windows\Benchmark\Binaries\Win64\Benchmark.exe`.
@@ -466,9 +470,44 @@ Source Code Editor = Visual Studio Code** e **Tools → Refresh Visual Studio Co
 | `Unable to build while Live Coding is active` | Feche o Editor da Unreal |
 | Erro de caminho longo ao compilar | Caminho do repositório muito longo: use `C:\Pesquisa\...` e, se precisar, ative caminhos longos no Windows (`LongPathsEnabled`) |
 | `check` não encontra a GPU | Atualize o driver e rode `pip install nvidia-ml-py` com o `.venv` ativo |
+| Linux: DLSS aparece como não suportado | Confira `PROTON_ENABLE_NVAPI=1` no bloco `linux` e se o driver proprietário completo está instalado (o `check` procura a `nvngx.dll` do driver) |
+| Linux: `O jogo nao gravou o run_config.json` na 1ª vez | A primeira abertura cria o prefixo do Wine e baixa o Steam Runtime: rode de novo |
 | Erro de sintaxe em `bench.json` | A mensagem mostra a linha: confira aspas, vírgulas e chaves |
 
 ---
 
-> **Linux (Proton):** o plugin DLSS da Unreal só existe para Windows, então no Linux roda o
-> mesmo `Benchmark.exe` pelo Proton. O suporte do orquestrador ao Linux ainda será adicionado.
+## 16. Linux (Proton)
+
+O plugin DLSS da Unreal só existe para Windows, então no Linux roda o **mesmo
+`Benchmark.exe`** compilado no Windows, traduzido pelo Proton:
+
+| No Windows | No Linux (Proton) |
+|---|---|
+| DirectX 12 | VKD3D-Proton (DirectX 12 → Vulkan, inclusive o ray tracing) |
+| NVAPI / DLSS do driver | DXVK-NVAPI → driver NVIDIA do Linux (`PROTON_ENABLE_NVAPI=1`) |
+
+O orquestrador abre o jogo com o **umu-launcher** (`umu-run`), que roda o Proton fora da
+Steam no mesmo ambiente que a Steam usaria. A instalação passo a passo está no
+`COMANDOS.md` ("Preparar o Linux"). O bloco `linux` do `config/bench.json` diz onde estão o
+jogo, o Proton e o prefixo do Wine.
+
+O que muda no Linux:
+- **Caminhos:** o jogo, dentro do Wine, enxerga o disco como `Z:`. O orquestrador converte
+  sozinho.
+- **Processo medido:** o `Benchmark.exe` dentro do Wine (não o lançador). `proc_handles`
+  conta descritores de arquivo do Linux, e a memória é a do processo do Wine.
+- **Versões fixas:** `UMU_RUNTIME_UPDATE=0` (o Steam Runtime não se atualiza no meio da
+  pesquisa) e `PROTON_ENABLE_NGX_UPDATER=0` (o equivalente ao OTA desligado). A versão do
+  Proton fica no `sessao.json`.
+- **Suspensão:** bloqueada com `systemd-inhibit`. Se o log avisar que não conseguiu,
+  desligue a suspensão nas configurações.
+- **Conferências:** as mesmas do Windows. Se o Frame Generation ou o Ray Reconstruction não
+  funcionarem pelo Proton naquela máquina, o teste é abortado com o motivo informado pela
+  NVIDIA, e o teste também para se a Unreal desligar o ray tracing por hardware.
+
+**Para comparar Windows × Linux:**
+- Use a **mesma máquina** (dual boot), a mesma resolução e drivers da mesma série nas duas
+  plataformas. Mantenha a mesma versão do Proton durante toda a pesquisa.
+- Compare a **existência e o tamanho das tendências** (Mann-Kendall), não os valores
+  absolutos: `proc_handles` e a memória do processo são medidos de jeitos diferentes
+  em cada sistema.

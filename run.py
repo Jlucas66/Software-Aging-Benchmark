@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from bench.config import Config
+from bench.config import Config, is_windows
 
 
 def ok(msg):
@@ -70,38 +70,69 @@ def cmd_check(cfg: Config, args) -> int:
         s = gpu.read()
         info(f"agora: {s.get('gpu_temp_c')} C, {s.get('gpu_power_w')} W, clock {s.get('gpu_clock_mhz')} MHz, VRAM {s.get('vram_mb')} MB")
 
+    # O jogo empacotado e o que roda os testes. Unreal, Content e plugins so sao necessarios
+    # na maquina que compila (build/package); nas outras eles aparecem so como informacao.
+    exe = cfg.game_exe()
+    print("\nJogo empacotado")
+    need(exe.exists(), f"Executavel: {exe}",
+         f"Jogo nao encontrado em {exe} -> rode 'python run.py package' (Windows) ou copie a pasta do jogo")
+
+    if not is_windows():
+        print("\nProton (Linux)")
+        from bench.proton import ProtonLauncher
+        proton = ProtonLauncher(cfg.bench.get("linux"))
+        for msg in proton.problems():
+            bad(msg)
+            problems += 1
+        if not proton.problems():
+            ok(f"{proton.launcher} + Proton {proton.proton_version()} ({proton.proton_path})")
+            info(f"Prefixo do Wine: {proton.prefix} (criado na primeira execucao)")
+        import glob
+        nvngx = glob.glob("/usr/lib*/nvidia/wine/nvngx.dll") + glob.glob("/usr/lib*/*/nvidia/wine/nvngx.dll")
+        if nvngx:
+            ok(f"Biblioteca do DLSS do driver: {nvngx[0]}")
+        else:
+            info("Nao achei a nvngx.dll do driver NVIDIA. Se o DLSS aparecer como nao suportado, "
+                 "instale o driver proprietario completo (o pacote que traz a pasta nvidia/wine)")
+        return _finish_check(cfg, problems)
+
+    compiling = not exe.exists()
+
+    def note(cond: bool, good: str, badmsg: str):
+        """Problema so na maquina que ainda vai compilar; nas outras, informacao."""
+        if compiling:
+            return need(cond, good, badmsg)
+        ok(good) if cond else info(badmsg + " (so necessario para compilar)")
+        return cond
+
     print("\nUnreal Engine")
     build_bat = cfg.engine_dir / "Engine" / "Build" / "BatchFiles" / "Build.bat"
-    need(build_bat.exists(), f"Engine em {cfg.engine_dir}", f"Engine nao encontrada em {cfg.engine_dir} (confira 'engine_dir')")
+    note(build_bat.exists(), f"Engine em {cfg.engine_dir}", f"Engine nao encontrada em {cfg.engine_dir}")
 
     print("\nProjeto UE5Benchmark")
     proj = cfg.project_dir
-    if need(cfg.uproject.exists(), f"Projeto: {cfg.uproject}", f"Benchmark.uproject nao encontrado em {proj}"):
+    if note(cfg.uproject.exists(), f"Projeto: {cfg.uproject}", f"Benchmark.uproject nao encontrado em {proj}"):
         content = proj / "Content"
-        need(content.exists() and any(content.rglob("*.umap")), "Pasta Content com o mapa",
-             "Pasta Content vazia ou ausente: copie a Content do zip original do UE5-Benchmark (README, secao 5)")
+        note(content.exists() and any(content.rglob("*.umap")), "Pasta Content com o mapa",
+             "Pasta Content vazia ou ausente (README, secao 5)")
         from bench.ue_build import REQUIRED_PLUGINS
         missing = [n for n in REQUIRED_PLUGINS if not (proj / "Plugins" / n / f"{n}.uplugin").exists()]
-        need(not missing, "Plugin DLSS da NVIDIA em Plugins/",
-             f"Faltam plugins em {proj / 'Plugins'}: {', '.join(missing)} (README, secao 6)")
+        note(not missing, "Plugin DLSS da NVIDIA em Plugins/", f"Faltam plugins: {', '.join(missing)} (README, secao 6)")
         try:
             enabled = {p.get("Name") for p in json.loads(cfg.uproject.read_text(encoding="utf-8-sig")).get("Plugins", [])
                        if p.get("Enabled")}
         except (OSError, ValueError):
             enabled = set()
         off = [n for n in REQUIRED_PLUGINS if n not in enabled]
-        need(not off, "Plugins NVIDIA habilitados no .uproject", f"Plugins desabilitados no .uproject: {', '.join(off)}")
+        note(not off, "Plugins NVIDIA habilitados no .uproject", f"Plugins desabilitados no .uproject: {', '.join(off)}")
         ini = proj / "Config" / "DefaultEngine.ini"
         text = ini.read_text(encoding="utf-8-sig", errors="ignore") if ini.exists() else ""
-        need("DefaultGraphicsRHI_DX12" in text, "DirectX 12 como RHI padrao", "DefaultEngine.ini sem DirectX 12")
-        src = proj / "Source" / "Benchmark" / "BenchmarkManager.cpp"
-        need(src.exists() and "BenchCVars" in src.read_text(encoding="utf-8", errors="ignore"),
-             "Codigo C++ do benchmark em Source/Benchmark", "Source/Benchmark sem o codigo do benchmark")
+        note("DefaultGraphicsRHI_DX12" in text, "DirectX 12 como RHI padrao", "DefaultEngine.ini sem DirectX 12")
 
-    print("\nJogo empacotado")
-    exe = cfg.game_exe()
-    ok(f"Executavel: {exe}") if exe.exists() else info(f"Ainda nao empacotado (esperado em {exe}) -> python run.py package")
+    return _finish_check(cfg, problems)
 
+
+def _finish_check(cfg: Config, problems: int) -> int:
     print("\nResultados")
     try:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
