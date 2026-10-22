@@ -72,6 +72,48 @@ O jogo empacotado (`.exe`, vários GB) é gerado fora do repositório, em `C:\UE
 > sem gerar frames e sem substituir os denoisers. Para mudar essa definição, edite
 > `config/tests.json` (seção 14).
 
+### Qual DLSS é testado: DLSS 4.5 (não o DLSS 5)
+
+O benchmark testa o **DLSS 4.5**, que é o que o plugin usado contém: **plugin 8.6.1 para
+Unreal Engine 5.4.4** (DLSS 310.6.0, Streamline 2.11.1). As atualizações automáticas da
+NVIDIA ficam desligadas (seção 6), então essas versões são as mesmas em todas as máquinas e
+em todos os testes. Elas ficam registradas no `sessao.json` de cada sessão.
+
+Os recursos do DLSS 4.5 que entram nos testes e as placas que rodam cada um:
+
+| Recurso | O que faz | RTX 20 | RTX 30 | RTX 40 | RTX 50 |
+|---|---|---|---|---|---|
+| Super Resolution / DLAA | Reconstrói a imagem com rede neural (DLAA = na resolução nativa) | sim | sim | sim | sim |
+| Ray Reconstruction | Substitui os denoisers do ray tracing por uma rede neural | sim | sim | sim | sim |
+| Frame Generation (2x) | Gera um frame intermediário entre dois renderizados | não | não | sim | sim |
+
+Ou seja, uma RTX 30 roda os testes 1, 2, 4, 5 e 7. Os testes 3 e 6 (Frame Generation) exigem
+RTX 40 ou 50. Se a placa não suportar o recurso, o próprio programa aborta o teste com o
+motivo informado pela NVIDIA (ex.: `NotSupportedIncompatibleHardware`).
+
+**O DLSS 5 ("Neural Rendering") não faz parte desta pesquisa:**
+
+- **É outro recurso, não uma Super Resolution nova.** A Super Resolution existe para dar
+  **desempenho**: renderiza menos pixels e reconstrói a imagem. O DLSS 5 existe para dar
+  **realismo**: é uma última etapa do frame em que uma rede neural acrescenta iluminação e
+  detalhe de materiais, e ele **custa** desempenho. Um jogo pode usar os dois juntos.
+- **A placa sozinha não liga o DLSS 5.** O jogo precisa ter o DLSS 5 integrado e pedir esse
+  recurso a cada frame. Mesmo numa RTX 50, que suporta o DLSS 5, este benchmark roda só os
+  recursos do DLSS 4.5, porque é só isso que o plugin dele sabe pedir.
+- **Não há plugin oficial público do DLSS 5 para a Unreal** (situação em outubro de 2026). A
+  NVIDIA oferece apenas o plugin do DLSS 4.5, e desenvolvedores ainda pedem acesso no fórum
+  oficial. Existe um plugin **não oficial**, que segundo usuários depende de uma DLL vazada e
+  não serve para pesquisa. Quando sair um oficial, provavelmente será para versões mais novas
+  da Unreal, e não para a 5.4. Adotá-lo exigiria recriar o benchmark e refazer todos os testes.
+
+Por isso, na metodologia o correto é escrever "DLSS 4.5, plugin 8.6.1 para UE 5.4.4" e deixar
+o DLSS 5 como **trabalho futuro**: por exemplo, um teste com o Neural Rendering numa RTX 50
+quando houver plugin oficial, para verificar se uma etapa neural mais pesada envelhece mais.
+
+Fontes: [NVIDIA: DLSS 5 Comes To Hogwarts Legacy & RTX Spark](https://www.nvidia.com/en-us/geforce/news/dlss-5-faster-ai-model-hogwarts-legacy-rtx-spark-laptops/),
+[NVIDIA Developer Forums: pedido de plugin DLSS 5 para UE](https://forums.developer.nvidia.com/t/official-dlss-5-neural-rendering-plugin-access-for-unreal-engine-5-8-2/382731),
+[NVIDIA: arquivo de plugins DLSS para Unreal](https://forums.developer.nvidia.com/t/nvidia-dlss-unreal-engine-plugin-archive/377564).
+
 ---
 
 ## 3. Programas para instalar
@@ -277,8 +319,9 @@ Cada sessão cria uma pasta em `BenchmarkRuns/`:
 BenchmarkRuns/2026-10-21_09-30_windows/
 ├── sessao.json      ← máquina, versões, configuração e resultado de cada teste
 ├── log.txt          ← tudo o que aconteceu, em ordem
-├── 01_sem_dlss.csv  ← uma linha a cada 5 s (um arquivo por teste)
-├── 02_dlss.csv
+├── 01_sem_dlss.csv                  ← uma linha a cada 5 s (um arquivo por teste)
+├── 01_sem_dlss_processos.csv        ← os OUTROS processos ativos, a cada 1 min
+├── 01_sem_dlss_eventos_sistema.txt  ← avisos e erros do Windows/Linux durante o teste
 └── logs/            ← logs da Unreal, só se algo deu errado (travamento, DLSS, OTA)
 ```
 
@@ -299,12 +342,35 @@ O CSV é gravado linha a linha: se o computador desligar no meio, o que já foi 
 | `proc_private_mb` | sistema operacional | Memória alocada só pelo jogo (Private Bytes). **Principal sinal de vazamento**: o Working Set pode cair quando o Windows tira páginas da RAM, o Private Bytes não |
 | `proc_threads`, `proc_handles` | sistema operacional | Threads e handles abertos pelo jogo (vazamento de recursos) |
 | `proc_cpu_pct` | sistema operacional | CPU usada pelo jogo, em % da CPU inteira |
+| `cpu_total_pct` | sistema operacional | Uso da CPU da máquina inteira (média de todos os núcleos), em % |
+| `cpu_nucleo_max_pct` | sistema operacional | Uso do **núcleo mais ocupado**, em %. Total baixo com um núcleo perto de 100% = gargalo numa thread só (ex.: a render thread) |
+| `outros_cpu_pct` | sistema operacional | CPU usada por **todos os outros processos** juntos, em % da CPU inteira (= total − jogo) |
 | `ram_mb`, `vram_mb` | sistema / NVML | RAM usada no sistema e VRAM usada na GPU |
 | `gpu_util_pct`, `gpu_temp_c`, `gpu_clock_mhz`, `gpu_power_w` | NVML | Contexto: uso, temperatura, clock e potência da GPU |
 | `throttle_power`, `throttle_thermal` | NVML | 1 = a GPU estava limitando o clock por potência / por temperatura |
 
 As métricas do processo são medidas **de fora**, pelo sistema operacional, e não dependem do
 que o jogo informa sobre si mesmo.
+
+### Outros processos e eventos do sistema
+
+Outros programas competem com o jogo pela máquina (antivírus, Windows Update, indexação,
+navegador esquecido aberto) e podem produzir variações que parecem envelhecimento. Por
+isso cada teste registra também:
+
+- **`outros_cpu_pct`** (no CSV principal, a cada 5 s): se essa coluna sobe num trecho, algo
+  além do jogo estava rodando ali.
+- **`<teste>_processos.csv`** (a cada 1 min): quais processos eram, com `pid`, nome, CPU
+  média do último minuto e memória. Entram os que usaram pelo menos 1% da CPU ou 300 MB
+  (ajustável no bloco `monitor` do `bench.json`). O próprio jogo fica de fora, porque já
+  está no CSV principal.
+- **`<teste>_eventos_sistema.txt`**: no Windows, avisos e erros do Visualizador de Eventos
+  (logs "Sistema" e "Aplicativo") e o histórico do Windows Update no período do teste. Ex.:
+  `nvlddmkm` = driver de vídeo parou de responder; `WindowsUpdateClient` = atualização
+  baixada ou instalada. No Linux, os avisos e erros do `journalctl`.
+
+Para verificar um ponto suspeito do gráfico: anote a hora (coluna `horas`) e procure o
+mesmo horário nos dois arquivos.
 
 ---
 
@@ -320,10 +386,12 @@ python run.py report --all-sessions                    # junta todas (ex.: um te
 
 Grava em `<sessão>/relatorio/` (ou `BenchmarkRuns/comparacao_<data>/` com várias sessões):
 
-- `resumo.csv`: por teste, médias de FPS e tempos de frame, **início × fim** das métricas de
+- `processos_mais_ativos.csv`: os outros processos que mais usaram CPU em cada teste;
+- `resumo.csv`: por teste, médias de FPS e tempos de frame, CPU dos outros processos, **início × fim** das métricas de
   aging (memória privada e física, handles, threads, VRAM, FPS), temperatura, clock,
   potência e % do tempo com limitação de potência/temperatura;
-- `<teste>.png`: FPS, memória do jogo, handles, VRAM, temperatura e clock ao longo do tempo;
+- `<teste>.png`: FPS, memória do jogo, handles, VRAM, uso de CPU (total, jogo e outros),
+  gargalo (núcleo de CPU mais ocupado × uso da GPU), temperatura e clock ao longo do tempo;
 - `comparacao.png`: os testes lado a lado.
 
 ---
@@ -359,7 +427,7 @@ Para comparar Windows e Linux, copie as pastas das sessões das duas plataformas
 | `proc_private_mb`, `proc_mem_mb`, `proc_handles`, `proc_threads`, `proc_cpu_pct`, `vram_mb`, `ram_mb` | sobe |
 | `frametime_p99_ms`, `gpu_time_ms`, `game_thread_ms`, `render_thread_ms` | sobe |
 | `fps`, `fps_exibido` | cai |
-| `gpu_temp_c`, `gpu_clock_mhz`, `gpu_power_w`, `gpu_util_pct` | **contexto**: explicam a causa, não são envelhecimento |
+| `gpu_temp_c`, `gpu_clock_mhz`, `gpu_power_w`, `gpu_util_pct`, `cpu_total_pct`, `cpu_nucleo_max_pct`, `outros_cpu_pct` | **contexto**: explicam a causa, não são envelhecimento |
 
 Uma métrica que nunca muda (ex.: número de threads fixo) aparece como `constante`.
 

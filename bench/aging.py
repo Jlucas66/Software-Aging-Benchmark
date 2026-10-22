@@ -42,6 +42,9 @@ METRICS = {
     "gpu_clock_mhz":    ("MHz", None,      "Clock da GPU"),
     "gpu_power_w":      ("W",   None,      "Potência da GPU"),
     "gpu_util_pct":     ("%",   None,      "Uso da GPU"),
+    "cpu_total_pct":    ("%",   None,      "Uso total da CPU"),
+    "cpu_nucleo_max_pct": ("%", None,      "Núcleo de CPU mais ocupado"),
+    "outros_cpu_pct":   ("%",   None,      "CPU usada pelos outros processos"),
 }
 PLOT_METRICS = ["proc_private_mb", "proc_mem_mb", "proc_handles", "vram_mb", "fps", "frametime_p99_ms"]
 CONSOLE_METRICS = ["proc_private_mb", "proc_mem_mb", "proc_handles", "proc_threads", "vram_mb",

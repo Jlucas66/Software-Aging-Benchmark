@@ -34,7 +34,7 @@
     // Intervalo entre amostras, em segundos
     "sample_interval_s": 5,
     // Pausa entre testes para a GPU esfriar (deixa os testes comparaveis)
-    "cooldown_minutes": 1,
+    "cooldown_minutes": 10,
     // Quantas vezes reabrir o jogo se ele fechar sozinho no meio de um teste
     "max_restarts": 20,
     // true = aborta o teste se algum cvar de DLSS nao ficar com o valor pedido
@@ -66,6 +66,11 @@
 
   "monitor": {
     "gpu_index": 0,
+    // Registro dos OUTROS processos (arquivo <teste>_processos.csv): a cada N segundos,
+    // os que usaram pelo menos X% da CPU ou Y MB de memoria
+    "processos_intervalo_s": 60,
+    "processos_cpu_min_pct": 1,
+    "processos_mem_min_mb": 300,
     // Seu proprio script de monitoramento, se quiser rodar junto. {out_dir} vira a pasta da sessao.
     // Exemplo: ["python", "C:/scripts/meu_monitor.py", "--output", "{out_dir}/meu_monitor.csv"]
     "external_cmd": null

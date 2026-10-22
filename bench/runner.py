@@ -32,7 +32,8 @@ except ImportError:  # pragma: no cover
     psutil = None
 
 from .config import Config, TestDef, is_windows, platform_name
-from .monitor import ExternalMonitor, GpuReader, TestMonitor
+from .eventos import export_events
+from .monitor import ExternalMonitor, GpuReader, ProcessLog, TestMonitor
 from .proton import ProtonLauncher, win_path
 
 # Desliga as atualizacoes automaticas (OTA) da NVIDIA dentro do jogo. Sem isso, o driver pode
@@ -405,6 +406,7 @@ class TestRunner:
             "arquivo": f"{test.name}.csv", "status": "rodando",
             "inicio": datetime.now().astimezone().isoformat(timespec="seconds"), "fim": None,
             "horas": 0.0, "execucoes": 0, "reinicios": 0, "amostras": 0,
+            "processos": f"{test.name}_processos.csv", "eventos_sistema": f"{test.name}_eventos_sistema.txt",
             "dlss": {}, "ray_tracing": None, "ota_ativa": False, "problemas": [], "logs": [],
         }
         self.session.data["testes"].append(entry)
@@ -415,8 +417,13 @@ class TestRunner:
                       test.id, test.name, duration_s / 3600, ", ".join(test.features) or "nenhuma")
         self.log.info("cvars: %s", test.cvars_arg())
 
+        started_utc = datetime.now(timezone.utc)
+        proc_log = ProcessLog(sdir / entry["processos"], started_utc, self.exe.name,
+                              interval_s=mon_cfg.get("processos_intervalo_s", 60),
+                              min_cpu_pct=mon_cfg.get("processos_cpu_min_pct", 1.0),
+                              min_mem_mb=mon_cfg.get("processos_mem_min_mb", 300))
         monitor = TestMonitor(raw_dir / "engine_samples.csv", sdir / entry["arquivo"], self.exe.name,
-                              self.gpu, datetime.now(timezone.utc))
+                              self.gpu, started_utc, process_log=proc_log)
         monitor.start()
         external = ExternalMonitor(mon_cfg.get("external_cmd"), sdir)
         external.start()
@@ -498,6 +505,13 @@ class TestRunner:
             entry["fim"] = datetime.now().astimezone().isoformat(timespec="seconds")
             entry["horas"] = round((time.monotonic() - start) / 3600, 3)
             entry["amostras"] = monitor.samples
+            try:
+                n = export_events(started_utc, datetime.now(timezone.utc), sdir / entry["eventos_sistema"])
+                entry["n_eventos_sistema"] = n
+                if n:
+                    self.log.info("%d aviso(s)/erro(s) do sistema durante o teste: veja %s", n, entry["eventos_sistema"])
+            except Exception as e:  # nunca esconder o resultado do teste por causa disso
+                self.log.warning("Nao consegui exportar os eventos do sistema: %s", e)
             self._finish_raw(raw_dir, entry)
             self.session.save()
             self.log.info("Teste %s terminou: %s (%.2f h, %d amostras, %d reinicio(s))",

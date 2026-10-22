@@ -2,6 +2,7 @@
 
 Grava em <sessao>/relatorio/ (ou BenchmarkRuns/comparacao_<data>/ com varias sessoes):
     resumo.csv        uma linha por teste: medias, inicio x fim das metricas de aging, contexto
+    processos_mais_ativos.csv   os outros processos que mais usaram CPU em cada teste
     <teste>.png       FPS, memoria do jogo, handles, VRAM, temperatura e clock ao longo do tempo
     comparacao.png    os testes lado a lado
 
@@ -87,6 +88,8 @@ def compute_stats(t: TestResult, warmup_min: float) -> dict:
     for col, name in (("fps", "fps_medio"), ("fps_exibido", "fps_exibido_medio"),
                       ("frametime_p99_ms", "frametime_p99_ms"), ("gpu_time_ms", "gpu_time_ms"),
                       ("render_thread_ms", "render_thread_ms"), ("proc_cpu_pct", "cpu_jogo_pct"),
+                      ("outros_cpu_pct", "cpu_outros_processos_pct"), ("cpu_total_pct", "cpu_total_pct"),
+                      ("cpu_nucleo_max_pct", "cpu_nucleo_max_pct"),
                       ("gpu_util_pct", "gpu_util_pct")):
         if col in w:
             row[name] = _mean(w[col])
@@ -123,6 +126,8 @@ PANELS = [
     ("Memória do jogo", [("proc_private_mb", "Privada (Private Bytes)"), ("proc_mem_mb", "Física (Working Set)")], "MB"),
     ("Handles abertos pelo jogo", [("proc_handles", None)], ""),
     ("VRAM usada", [("vram_mb", None)], "MB"),
+    ("Uso de CPU", [("cpu_total_pct", "Total"), ("proc_cpu_pct", "Jogo"), ("outros_cpu_pct", "Outros processos")], "%"),
+    ("Gargalo: CPU × GPU", [("cpu_nucleo_max_pct", "Núcleo de CPU mais ocupado"), ("gpu_util_pct", "Uso da GPU")], "%"),
     ("Temperatura da GPU", [("gpu_temp_c", None)], "°C"),
     ("Clock da GPU", [("gpu_clock_mhz", None)], "MHz"),
 ]
@@ -130,7 +135,7 @@ PANELS = [
 
 def plot_test(t: TestResult, warmup_min: float, out_png: Path) -> None:
     df = t.df
-    fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
+    fig, axes = plt.subplots(4, 2, figsize=(12, 12), sharex=True)
     for ax, (title, series, unit) in zip(axes.flat, PANELS):
         ax.set_title(title)
         ax.set_ylabel(unit)
@@ -188,6 +193,31 @@ def plot_comparison(stats: pd.DataFrame, out_png: Path) -> None:
     plt.close(fig)
 
 
+def top_processes(tests: list[TestResult], n: int = 15) -> pd.DataFrame | None:
+    """Os outros processos que mais usaram CPU durante cada teste (de <teste>_processos.csv)."""
+    frames = []
+    for t in tests:
+        f = t.path.parent / t.meta.get("processos", f"{t.name}_processos.csv")
+        if not f.exists() or f.stat().st_size == 0:
+            continue
+        p = pd.read_csv(f)
+        if p.empty:
+            continue
+        p["cpu_pct"] = pd.to_numeric(p["cpu_pct"], errors="coerce")
+        p["mem_mb"] = pd.to_numeric(p["mem_mb"], errors="coerce")
+        snapshots = max(1, p["timestamp_utc"].nunique())
+        g = p.groupby("processo").agg(
+            cpu_soma=("cpu_pct", "sum"), cpu_max_pct=("cpu_pct", "max"), mem_max_mb=("mem_mb", "max"),
+            vezes_registrado=("timestamp_utc", "nunique"), primeira_hora=("horas", "min"), ultima_hora=("horas", "max"))
+        # media sobre o teste inteiro (minutos em que nao apareceu contam como ~0)
+        g["cpu_media_pct"] = (g.pop("cpu_soma") / snapshots).round(2)
+        g = g.sort_values(["cpu_media_pct", "mem_max_mb"], ascending=False).head(n).reset_index()
+        g.insert(0, "teste", t.name)
+        g.insert(0, "sessao", t.session)
+        frames.append(g)
+    return pd.concat(frames, ignore_index=True) if frames else None
+
+
 # ----------------------------------------------------------------------------- entrada
 
 def generate(paths, warmup_min: float = 5.0, out_dir: Path | None = None, log=print) -> Path | None:
@@ -212,6 +242,10 @@ def generate(paths, warmup_min: float = 5.0, out_dir: Path | None = None, log=pr
     stats.insert(0, "rotulo", [f"{r.teste} ({r.plataforma}, {r.sessao})" if many else r.teste for r in stats.itertuples()])
     stats = stats.sort_values(["id", "plataforma", "sessao"]).reset_index(drop=True)
     stats.to_csv(out_dir / "resumo.csv", index=False, encoding="utf-8-sig")
+
+    top = top_processes(tests)
+    if top is not None:
+        top.to_csv(out_dir / "processos_mais_ativos.csv", index=False, encoding="utf-8-sig")
 
     for t in tests:
         if not t.df.empty:

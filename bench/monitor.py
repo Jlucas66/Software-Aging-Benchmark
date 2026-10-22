@@ -41,7 +41,9 @@ FIELDS = [
     "fps", "fps_exibido", "frametime_p99_ms", "gpu_time_ms", "game_thread_ms", "render_thread_ms",
     # processo do jogo, medido pelo sistema operacional
     "proc_mem_mb", "proc_private_mb", "proc_threads", "proc_handles", "proc_cpu_pct",
-    # sistema e GPU
+    # CPU da maquina inteira e outros processos
+    "cpu_total_pct", "cpu_nucleo_max_pct", "outros_cpu_pct",
+    # memoria e GPU
     "ram_mb", "vram_mb", "gpu_util_pct", "gpu_temp_c", "gpu_clock_mhz", "gpu_power_w",
     "throttle_power", "throttle_thermal",
 ]
@@ -161,7 +163,8 @@ class GameProcess:
                      tira paginas da RAM, o Private Bytes nao.
     proc_threads     numero de threads
     proc_handles     handles abertos (Windows) / descritores de arquivo (Linux)
-    proc_cpu_pct     uso de CPU do jogo, em % da CPU inteira (100 = todos os nucleos)
+    proc_cpu_pct     uso de CPU do jogo, em % da CPU inteira (100 = todos os nucleos),
+                     media entre duas amostras
     """
 
     def __init__(self, exe_name: str):
@@ -209,10 +212,6 @@ class GameProcess:
             self.proc = self._find()
             if self.proc is None:
                 return {}
-            try:
-                self.proc.cpu_percent(None)  # a primeira leitura so serve de referencia
-            except psutil.Error:
-                pass
         p = self.proc
         d: dict = {}
         try:
@@ -231,10 +230,91 @@ class GameProcess:
                     d["proc_handles"] = p.num_handles()
                 elif hasattr(p, "num_fds"):
                     d["proc_handles"] = p.num_fds()
-                d["proc_cpu_pct"] = round(p.cpu_percent(None) / self.ncpu, 1)
+                ct = p.cpu_times()
+                d["_cpu_s"] = ct.user + ct.system   # tempo de CPU acumulado (vira % no monitor)
+                d["_pid"] = p.pid
+                d["_t"] = time.monotonic()
         except psutil.Error:
             self.proc = None
         return d
+
+
+# ----------------------------------------------------------------------------- outros processos
+
+class ProcessLog:
+    """Registra, a cada `interval_s`, os OUTROS processos do computador que estavam usando
+    CPU ou memoria de forma relevante (antivirus, Windows Update, navegador, driver...).
+    Eles competem com o jogo pela maquina e podem parecer software aging.
+
+    <teste>_processos.csv: timestamp_utc, horas, pid, processo, cpu_pct, mem_mb
+      cpu_pct = media do ultimo intervalo, em % da CPU inteira
+    Entram os processos com cpu_pct >= min_cpu_pct ou mem_mb >= min_mem_mb.
+    """
+
+    FIELDS = ["timestamp_utc", "horas", "pid", "processo", "cpu_pct", "mem_mb"]
+
+    def __init__(self, out_csv: Path, t0: datetime, exe_name: str, interval_s: float = 60,
+                 min_cpu_pct: float = 1.0, min_mem_mb: float = 300):
+        self.out_csv = Path(out_csv)
+        self.t0 = t0
+        self.exe_name = exe_name.lower()
+        self.interval_s = float(interval_s)
+        self.min_cpu = float(min_cpu_pct)
+        self.min_mem = float(min_mem_mb)
+        self.ncpu = (psutil.cpu_count() or 1) if psutil else 1
+        self._procs: dict = {}
+        self._next = 0.0
+        self.snapshots = 0
+
+    def maybe_snapshot(self):
+        if psutil is None or time.monotonic() < self._next:
+            return
+        self._next = time.monotonic() + self.interval_s
+        now = datetime.now(timezone.utc)
+        horas = round((now - self.t0).total_seconds() / 3600.0, 5)
+        rows, seen = [], set()
+        for p in psutil.process_iter(["name"]):
+            pid = p.pid
+            name = p.info.get("name") or ""
+            if pid == 0 or name.lower() == self.exe_name:
+                continue  # "Ociosidade do Sistema" e o proprio jogo (medido no CSV principal)
+            seen.add(pid)
+            known = self._procs.get(pid)
+            try:
+                reused = known is not None and known.create_time() != p.create_time()
+            except psutil.Error:
+                continue
+            if known is None or reused:   # processo novo (ou pid reaproveitado)
+                self._procs[pid] = p
+                try:
+                    p.cpu_percent(None)  # primeira vez: so referencia, a media vem no proximo
+                except psutil.Error:
+                    pass
+                cpu = None
+            else:
+                p = known
+                try:
+                    cpu = p.cpu_percent(None) / self.ncpu
+                except psutil.Error:
+                    cpu = None
+            try:
+                mem = p.memory_info().rss / 2**20
+            except psutil.Error:
+                mem = None
+            if (cpu is not None and cpu >= self.min_cpu) or (mem is not None and mem >= self.min_mem):
+                rows.append({"timestamp_utc": now.isoformat(timespec="seconds"), "horas": horas, "pid": pid,
+                             "processo": name, "cpu_pct": round(cpu, 1) if cpu is not None else "",
+                             "mem_mb": round(mem, 1) if mem is not None else ""})
+        for pid in list(self._procs):
+            if pid not in seen:
+                del self._procs[pid]
+        new_file = not self.out_csv.exists()
+        with open(self.out_csv, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=self.FIELDS)
+            if new_file:
+                w.writeheader()
+            w.writerows(sorted(rows, key=lambda r: -(r["cpu_pct"] or 0)))
+        self.snapshots += 1
 
 
 # ----------------------------------------------------------------------------- monitor
@@ -261,8 +341,13 @@ class TestMonitor(threading.Thread):
 
     POLL_S = 0.5
 
-    def __init__(self, engine_csv: Path, out_csv: Path, exe_name: str, gpu: GpuReader, test_start_utc: datetime):
+    def __init__(self, engine_csv: Path, out_csv: Path, exe_name: str, gpu: GpuReader, test_start_utc: datetime,
+                 process_log: ProcessLog | None = None):
         super().__init__(daemon=True, name="TestMonitor")
+        self.process_log = process_log
+        self._prev_game_cpu: tuple | None = None   # (pid, tempo de CPU, instante) da amostra anterior
+        if psutil is not None:
+            psutil.cpu_percent(None, percpu=True)   # referencia para o uso da CPU
         self.engine_csv = Path(engine_csv)
         self.out_csv = Path(out_csv)
         self.gpu = gpu
@@ -281,6 +366,7 @@ class TestMonitor(threading.Thread):
         self.launch = launch_n
         self.game.attach(pid)
         self._last_proc = {}
+        self._prev_game_cpu = None
 
     def stop(self, timeout: float = 15.0):
         self._stop_event.set()
@@ -320,7 +406,26 @@ class TestMonitor(threading.Thread):
         row.update(engine_row_to_fields(engine_row))
         # Leitura do processo feita na volta anterior (ate 0,5 s antes): a ultima linha que o
         # jogo grava sai logo antes dele fechar, e medir depois pegaria o jogo se desmontando.
-        row.update(self._last_proc)
+        proc = dict(self._last_proc)
+        cpu_s, pid, t_mono = proc.pop("_cpu_s", None), proc.pop("_pid", None), proc.pop("_t", None)
+        row.update(proc)
+        # CPU do jogo = tempo de CPU gasto desde a amostra anterior / tempo passado
+        game_cpu = None
+        if cpu_s is not None:
+            prev = self._prev_game_cpu
+            if prev and prev[0] == pid and t_mono > prev[2]:
+                game_cpu = max(0.0, 100.0 * (cpu_s - prev[1]) / (t_mono - prev[2]) / self.game.ncpu)
+                row["proc_cpu_pct"] = round(game_cpu, 1)
+            self._prev_game_cpu = (pid, cpu_s, t_mono)
+        if psutil is not None:
+            # Uso da CPU desde a amostra anterior: media de todos os nucleos (total) e o nucleo
+            # mais ocupado. Total baixo com um nucleo em ~100% = gargalo numa thread so.
+            cores = psutil.cpu_percent(None, percpu=True)
+            total = sum(cores) / len(cores) if cores else 0.0
+            row["cpu_total_pct"] = round(total, 1)
+            row["cpu_nucleo_max_pct"] = round(max(cores), 1) if cores else None
+            if game_cpu is not None:
+                row["outros_cpu_pct"] = round(max(0.0, total - game_cpu), 1)
         try:
             row.update(self.gpu.read())
         except Exception:
@@ -350,6 +455,11 @@ class TestMonitor(threading.Thread):
                 if stopping:
                     break
                 self._last_proc = self.game.read()
+                if self.process_log is not None:
+                    try:
+                        self.process_log.maybe_snapshot()
+                    except Exception:
+                        pass  # o registro de processos nunca derruba a coleta principal
                 self._stop_event.wait(self.POLL_S)
 
 
