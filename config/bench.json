@@ -49,11 +49,12 @@
   "linux": {
     // Pasta do jogo copiada do Windows (a C:/UE5BenchmarkBuild inteira)
     "package_dir": "~/UE5BenchmarkBuild",
-    // Lancador do Proton fora da Steam (umu-launcher)
-    "launcher": "umu-run",
+    // Lancador do Proton fora da Steam (umu-launcher). Caminho do umu-run extraido do
+    // arquivo "zipapp" (Zorin/Ubuntu); se instalou pelo gerenciador de pacotes, use so "umu-run"
+    "launcher": "~/.local/share/umu/umu-run",
     // Pasta do Proton usado. Versao FIXA durante toda a pesquisa (anote no trabalho).
-    // Troque GE-ProtonXX-YY pelo nome da pasta que voce extraiu.
-    "proton_path": "~/.local/share/Steam/compatibilitytools.d/GE-ProtonXX-YY",
+    // Se usar outra versao, troque pelo nome da pasta que voce extraiu.
+    "proton_path": "~/.local/share/Steam/compatibilitytools.d/GE-Proton11-11",
     // Prefixo do Wine so do benchmark (criado sozinho na primeira execucao)
     "wine_prefix": "~/.local/share/bench-prefix",
     "env": {

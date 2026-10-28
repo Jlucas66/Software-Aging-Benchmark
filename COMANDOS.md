@@ -1,3 +1,9 @@
+# Comandos
+
+Rode tudo de dentro da pasta do projeto, com o ambiente Python ativo
+(o começo da linha deve mostrar `(.venv)`).
+
+```
 // entrar na pasta e ativar o ambiente - Windows (PowerShell)
 cd C:\Pesquisa\Software-Aging-Benchmark
 .venv\Scripts\activate
@@ -9,17 +15,21 @@ source .venv/bin/activate
 // so na primeira vez em cada maquina (cria o ambiente e instala as bibliotecas)
 python -m venv .venv
 pip install -r requirements.txt
+```
 
-ANTES DOS TESTES
+## Antes de testar
 
+```
 // ver os 7 testes e as configuracoes de DLSS de cada um
 python run.py list
 
 // conferir se esta tudo instalado
 python run.py check
+```
 
-RODAR OS TESTES
+## Rodar testes
 
+```
 // validacao rapida (3 min)
 python run.py run --tests 2 --minutes 3
 
@@ -34,9 +44,11 @@ python run.py run --tests 1,2 --hours 8
 python run.py run --tests all --hours 48
 
 // interromper: Ctrl+C (os dados ja gravados ficam salvos)
+```
 
-PLOTANDOS OS GRÁFICOS
+## Gráficos e análise
 
+```
 // graficos e resumo da sessao mais recente
 python run.py report
 
@@ -51,16 +63,22 @@ python mann_kendall.py
 
 // Mann-Kendall de testes curtos (sem aquecimento e sem janela)
 python mann_kendall.py --aquecimento 0 --janela 0
+```
 
-PARA RODAR NO WINDOWS DO LABORATÓRIO
+## Só no Windows
 
-// em casa: copiar o jogo pronto para o HD externo/pendrive (troque E: pela letra dele)
-robocopy C:\UE5BenchmarkBuild E:\UE5BenchmarkBuild /E
+```
+// compilar e gerar o .exe (apenas quando mudar o C++ ou os plugins)
+python run.py build
+python run.py package
+```
 
-// no lab: copiar do HD externo para o mesmo caminho
-robocopy E:\UE5BenchmarkBuild C:\UE5BenchmarkBuild /E
+## Preparar outra máquina Windows (ex.: laboratório)
 
-// no lab: baixar o projeto e preparar o Python
+Passo a passo completo no `INSTALACAO.md`. Resumo:
+
+```
+// projeto e Python
 cd C:\
 mkdir Pesquisa
 cd Pesquisa
@@ -70,36 +88,71 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-// no lab: so se o jogo reclamar de DLL faltando
-C:\UE5BenchmarkBuild\Windows\Engine\Extras\Redist\en-us\UEPrereqSetup_x64.exe
-
-// no lab: validar e rodar
-// (no check, ignore os avisos de Unreal, Content e Plugins: nao sao usados para rodar)
+// o jogo: compilar aqui (Caminho A) ...
+// (instale Unreal 5.4 + Build Tools; copie Content e Plugins - INSTALACAO.md, secao 2.3)
 python run.py check
-python run.py run --tests 2 --minutes 3
+python run.py build
+python run.py package
 
-// PREPARAR O LINUX 
+// ... ou baixar o jogo pronto da release "jogo-v1" do GitHub (Caminho B) e extrair
+& "C:\Program Files\7-Zip\7z.exe" x $env:USERPROFILE\Downloads\UE5BenchmarkBuild.7z.001 -oC:\
 
-// 1. driver proprietario da NVIDIA: conferir se esta instalado
+// enviar o jogo pronto para o GitHub (uma vez, na maquina que ja tem o jogo):
+// gera partes de 1,9 GB em C:\Temp; depois anexe todas numa release do GitHub
+& "C:\Program Files\7-Zip\7z.exe" a -v1900m C:\Temp\UE5BenchmarkBuild.7z C:\UE5BenchmarkBuild
+
+// validar
+python run.py check
+python run.py run --tests all --minutes 3
+```
+
+## Salvar no GitHub
+
+```
+git add -A
+git status
+git commit -m "descricao"
+git push
+```
+
+## Preparar o Linux (uma vez só) - Zorin OS / Ubuntu
+
+No Linux roda o mesmo jogo compilado no Windows, pelo Proton. Não precisa da Unreal.
+Antes de sair do Windows: faça commit/push do projeto e desligue a "Inicialização rápida"
+(Painel de Controle → Opções de Energia), senão o Linux não abre a partição do Windows.
+
+```
+// 1. driver da NVIDIA: menu do Zorin → "Drivers adicionais" → escolha o driver
+//    nvidia-driver mais novo marcado como "proprietário, testado" → aplicar → reiniciar
 nvidia-smi
+ls /usr/lib/x86_64-linux-gnu/nvidia/wine/      // deve listar nvngx.dll (DLSS no Proton)
 
-// 2. umu-launcher (abre o Proton fora da Steam) - use a linha da sua distribuicao
-sudo dnf install umu-launcher                 // Fedora
-sudo pacman -S umu-launcher                   // Arch / CachyOS
-sudo apt install ./umu-launcher_*.deb         // Ubuntu/Debian: baixe o .deb em
-                                              // github.com/Open-Wine-Components/umu-launcher/releases
+// 2. pacotes basicos
+sudo apt update
+sudo apt install -y git python3-venv python3-pip p7zip-full
 
-// 3. GE-Proton: baixe o .tar.gz em github.com/GloriousEggroll/proton-ge-custom/releases
+// 3. GE-Proton: no navegador, baixe o GE-ProtonXX-YY.tar.gz em
+//    github.com/GloriousEggroll/proton-ge-custom/releases
 mkdir -p ~/.local/share/Steam/compatibilitytools.d
 tar -xf ~/Downloads/GE-Proton*.tar.gz -C ~/.local/share/Steam/compatibilitytools.d/
 ls ~/.local/share/Steam/compatibilitytools.d/
-// copie o nome da pasta que apareceu (ex.: GE-Proton10-20) para "proton_path"
-// no bloco "linux" do config/bench.json
+// copie o nome da pasta (ex.: GE-Proton10-20) para "proton_path" no bloco "linux"
+// do config/bench.json
 
-// 4. copiar o jogo do HD externo (troque NOME_DO_HD)
-cp -r /media/$USER/NOME_DO_HD/UE5BenchmarkBuild ~/UE5BenchmarkBuild
+// 4. umu-launcher: no navegador, baixe o arquivo que termina em -zipapp.tar em
+//    github.com/Open-Wine-Components/umu-launcher/releases
+tar -xf ~/Downloads/umu-launcher-*-zipapp.tar -C ~/.local/share/
+ls ~/.local/share/umu/                       // deve listar umu-run
 
-// 5. projeto e Python (no Ubuntu, antes: sudo apt install python3-venv git)
+// 5. o jogo: da particao do Windows da mesma maquina (abra o disco no app Arquivos
+//    para montar e veja o nome dele) ...
+ls /media/$USER/
+rsync -a --info=progress2 "/media/$USER/NOME_DO_DISCO/UE5BenchmarkBuild" ~/
+//    ... ou da release "jogo-v1" do GitHub (baixe todas as partes; sudo apt install p7zip-full)
+7z x ~/Downloads/UE5BenchmarkBuild.7z.001 -o$HOME
+ls ~/UE5BenchmarkBuild/Windows/Benchmark/Binaries/Win64/   // deve listar Benchmark.exe
+
+// 6. projeto e Python
 mkdir -p ~/Pesquisa && cd ~/Pesquisa
 git clone <url-do-repositorio> Software-Aging-Benchmark
 cd Software-Aging-Benchmark
@@ -107,7 +160,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-// 6. conferir e validar (a 1a abertura cria o prefixo do Wine e pode demorar;
-//    se der "tempo limite", rode de novo)
+// 7. conferir e validar (a 1a abertura baixa o Steam Runtime, cria o prefixo do Wine
+//    e compila shaders: pode demorar e dar "tempo limite"; se der, rode de novo)
 python run.py check
 python run.py run --tests 2 --minutes 3
+```
+
+Depois disso, os comandos de rodar testes, gráficos e análise são os mesmos do Windows.
+Antes de testes longos: Configurações → Energia → "Tela em branco" = Nunca e
+"Suspensão automática" desligada.

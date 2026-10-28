@@ -32,7 +32,9 @@ def win_path(p: Path) -> str:
 class ProtonLauncher:
     def __init__(self, linux_cfg: dict):
         c = linux_cfg or {}
-        self.launcher = c.get("launcher", "umu-run")
+        launcher = c.get("launcher", "umu-run")
+        # aceita so o nome (se estiver no PATH) ou o caminho completo, inclusive com ~
+        self.launcher = str(_expand(launcher)) if ("/" in launcher or launcher.startswith("~")) else launcher
         self.proton_path = _expand(c.get("proton_path", ""))
         self.prefix = _expand(c.get("wine_prefix", "~/.local/share/bench-prefix"))
         self.extra_env = {k: str(v) for k, v in (c.get("env") or {}).items()}
