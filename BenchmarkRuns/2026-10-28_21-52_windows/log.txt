@@ -1,0 +1,12 @@
+2026-10-28 21:52:09 [INFO] Sessao: C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-28_21-52_windows
+2026-10-28 21:52:09 [INFO] Suspensao automatica do Windows bloqueada durante os testes.
+2026-10-28 21:52:09 [INFO] ======================================================================
+2026-10-28 21:52:09 [INFO] TESTE 1 - 01_sem_dlss | 8.00 h | features: nenhuma
+2026-10-28 21:52:09 [INFO] cvars: r.VSync=0;t.MaxFPS=0;t.IdleWhenNotForeground=0;r.AntiAliasingMethod=4;r.NGX.DLSS.Preset=0;r.NGX.DLSSRR.Preset=0;r.NGX.DLSS.Enable=0;r.Streamline.DLSSG.Enable=0;r.NGX.DLSS.DenoiserMode=0;r.ScreenPercentage=100
+2026-10-28 21:52:09 [INFO] Abrindo o jogo (execucao 1, faltam 8.00 h)
+2026-10-28 21:52:19 [INFO] Conferido: 10 cvars com o valor pedido | D3D12 1600x900 | DLSS Off, FG Off
+2026-10-29 05:52:20 [INFO] 13 aviso(s)/erro(s) do sistema durante o teste: veja 01_sem_dlss_eventos_sistema.txt
+2026-10-29 05:52:20 [INFO] Teste 01_sem_dlss terminou: completo (8.00 h, 5760 amostras, 0 reinicio(s))
+2026-10-29 05:52:20 [INFO] ----------------------------------------------------------------------
+2026-10-29 05:52:20 [INFO]   01_sem_dlss        completo       8.00 h    5760 amostras
+2026-10-29 05:52:20 [INFO] Resultados em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-28_21-52_windows
