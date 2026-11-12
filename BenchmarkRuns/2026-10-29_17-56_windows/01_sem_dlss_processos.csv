@@ -1,0 +1,4 @@
+timestamp_utc,horas,pid,processo,cpu_pct,mem_mb
+2026-10-29T20:56:50+00:00,0.0,4396,MsMpEng.exe,,305.0
+2026-10-29T20:56:50+00:00,0.0,7684,explorer.exe,,426.1
+2026-10-29T20:56:50+00:00,0.0,12944,EpicGamesLauncher.exe,,401.8

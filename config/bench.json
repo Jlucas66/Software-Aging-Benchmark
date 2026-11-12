@@ -18,7 +18,7 @@
     // Vazio = detecta sozinho dentro de package_dir
     "exe": "",
     // Use a resolucao nativa do monitor (ex.: [2560, 1080] em casa)
-    "resolution": [2560, 1080],
+    "resolution": [1920, 1080],
     // "fullscreen" ou "windowed"
     "window_mode": "fullscreen",
     // Frame Generation exige DirectX 12

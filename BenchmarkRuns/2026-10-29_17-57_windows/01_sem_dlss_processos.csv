@@ -1,0 +1,3 @@
+timestamp_utc,horas,pid,processo,cpu_pct,mem_mb
+2026-10-29T20:57:42+00:00,0.0,7684,explorer.exe,,437.8
+2026-10-29T20:57:42+00:00,0.0,12944,EpicGamesLauncher.exe,,401.8

@@ -1,0 +1,2 @@
+timestamp_utc,horas,execucao,fps,fps_exibido,frametime_p99_ms,gpu_time_ms,game_thread_ms,render_thread_ms,proc_mem_mb,proc_private_mb,proc_threads,proc_handles,proc_cpu_pct,cpu_total_pct,cpu_nucleo_max_pct,outros_cpu_pct,ram_mb,vram_mb,gpu_util_pct,gpu_temp_c,gpu_clock_mhz,gpu_power_w,throttle_power,throttle_thermal
+2026-10-29T20:56:58.637Z,0.00221,1,59.11,,50.739,10.898,1.627,13.835,1784.8,4687.5,114,2242,,0.0,0.0,,7589.5,4275.5,71,51,2910,152.8,0,0

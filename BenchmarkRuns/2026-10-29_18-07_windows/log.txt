@@ -1,0 +1,14 @@
+2026-10-29 18:07:40 [INFO] Sessao: C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-29_18-07_windows
+2026-10-29 18:07:40 [INFO] Suspensao automatica do Windows bloqueada durante os testes.
+2026-10-29 18:07:40 [INFO] ======================================================================
+2026-10-29 18:07:40 [INFO] TESTE 2 - 02_dlss | 0.05 h | features: dlss
+2026-10-29 18:07:40 [INFO] cvars: r.VSync=0;t.MaxFPS=0;t.IdleWhenNotForeground=0;r.AntiAliasingMethod=4;r.NGX.DLSS.Preset=0;r.NGX.DLSSRR.Preset=0;r.NGX.DLSS.Enable=1;r.Streamline.DLSSG.Enable=0;r.NGX.DLSS.DenoiserMode=0;r.ScreenPercentage=100
+2026-10-29 18:07:40 [INFO] Abrindo o jogo (execucao 1, faltam 0.05 h)
+2026-10-29 18:07:46 [INFO] Conferido: 10 cvars com o valor pedido | D3D12 1280x720 | DLSS Quality, FG Off
+2026-10-29 18:07:50 [WARNING] Interrompido pelo usuario (Ctrl+C).
+2026-10-29 18:07:51 [INFO] Logs da Unreal guardados em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-29_18-07_windows\logs (houve problema no teste).
+2026-10-29 18:07:51 [INFO] Teste 02_dlss terminou: interrompido (0.00 h, 1 amostras, 0 reinicio(s))
+2026-10-29 18:07:51 [WARNING] Sessao interrompida. Os dados ja gravados ficam em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-29_18-07_windows
+2026-10-29 18:07:51 [INFO] ----------------------------------------------------------------------
+2026-10-29 18:07:51 [INFO]   02_dlss            interrompido   0.00 h       1 amostras
+2026-10-29 18:07:51 [INFO] Resultados em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\2026-10-29_18-07_windows

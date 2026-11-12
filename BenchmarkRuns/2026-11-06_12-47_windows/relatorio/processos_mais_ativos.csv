@@ -1,0 +1,6 @@
+﻿sessao,teste,processo,cpu_max_pct,mem_max_mb,vezes_registrado,primeira_hora,ultima_hora,cpu_media_pct
+2026-11-06_12-47_windows,02_dlss,EpicGamesLauncher.exe,0.1,416.7,1433,0.0,23.99956,0.1
+2026-11-06_12-47_windows,02_dlss,MsMpEng.exe,0.1,448.9,7,0.0,0.10041,0.0
+2026-11-06_12-47_windows,02_dlss,explorer.exe,0.0,317.1,1361,1.20709,23.99956,0.0
+2026-11-06_12-47_windows,02_dlss,svchost.exe,2.0,89.1,2,15.84089,15.85766,0.0
+2026-11-06_12-47_windows,02_dlss,System,1.2,1.6,1,20.91663,20.91663,0.0

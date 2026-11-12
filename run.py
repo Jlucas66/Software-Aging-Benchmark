@@ -156,6 +156,17 @@ def cmd_package(cfg: Config, args) -> int:
 
 
 def cmd_run(cfg: Config, args) -> int:
+    # Sem estas bibliotecas o teste rodaria sem medir o processo do jogo (memoria, handles,
+    # CPU) - justamente as metricas de software aging. Melhor nao comecar.
+    missing = [pkg for mod, pkg in (("psutil", "psutil"), ("pynvml", "nvidia-ml-py"))
+               if importlib.util.find_spec(mod) is None]
+    if missing:
+        activate = ".venv\\Scripts\\activate" if is_windows() else "source .venv/bin/activate"
+        print(f"\nFaltam bibliotecas: {', '.join(missing)}. Sem elas, memoria, handles e CPU nao seriam medidos.")
+        print(f"Provavelmente o ambiente do projeto nao esta ativo. Rode:\n    {activate}")
+        print("e confira se a linha comeca com (.venv). Depois rode o teste de novo.")
+        return 1
+
     from bench.runner import run_session
 
     tests = cfg.select_tests(args.tests)
