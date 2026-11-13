@@ -1,0 +1,36 @@
+// Testes com o Black Myth: Wukong Benchmark Tool.
+//
+// Cada teste usa um PERFIL: o GameUserSettings.ini do jogo salvo depois de configurar o menu
+// (python wukong.py perfil salvar <nome>). Os perfis ficam em config/wukong_perfis/.
+// Assim nao e preciso adivinhar o significado de cada numero do arquivo: o menu do jogo
+// define, o perfil guarda, e o JSON de cada volta confirma o que o jogo usou.
+//
+// Mapeamento das features (mesma logica dos testes do UE5-Benchmark):
+//   sem DLSS : Super Resolution Sampling = TSR, resolucao de amostragem 100
+//   dlss     : DLSS com amostragem 100 (= DLAA: a rede roda sem reduzir a resolucao)
+//   fg       : Frame Generation ligado (DLSS)
+//   rt       : NVIDIA Full Ray Tracing ligado (nivel fixo, o mesmo em todos os testes com RT).
+//              O Benchmark Tool nao expoe Ray Reconstruction separado; no lugar da "rr" do
+//              UE5-Benchmark, a feature 2 aqui e o ray tracing completo. Registre isso no trabalho.
+//   sr       : DLSS com amostragem 66 (modo Qualidade: renderiza menor e reconstroi)
+//
+// "todos": aplicado POR CIMA de todos os perfis, para nada variar sem querer entre testes.
+//   VSync e limite de FPS desligados (senao a GPU nao e estressada ao maximo).
+{
+  "todos": {
+    "ui": { "Vsync": "0", "LockFrameRate": "0", "MotionBlur": "0" },
+    "principal": { "bUseVSync": "False", "FrameRateLimit": "0.000000",
+                   "ResolutionSizeX": "1920", "ResolutionSizeY": "1080",
+                   "LastUserConfirmedResolutionSizeX": "1920", "LastUserConfirmedResolutionSizeY": "1080" }
+  },
+
+  "tests": [
+    { "id": 1, "name": "01_sem_dlss",   "perfil": "01_sem_dlss",   "features": [] },
+    { "id": 2, "name": "02_dlss",       "perfil": "02_dlss",       "features": ["dlss"] },
+    { "id": 3, "name": "03_dlss_fg",    "perfil": "03_dlss_fg",    "features": ["dlss", "fg"] },
+    { "id": 4, "name": "04_dlss_rt",    "perfil": "04_dlss_rt",    "features": ["dlss", "rt"] },
+    { "id": 5, "name": "05_dlss_sr",    "perfil": "05_dlss_sr",    "features": ["dlss", "sr"] },
+    { "id": 6, "name": "06_dlss_fg_rt", "perfil": "06_dlss_fg_rt", "features": ["dlss", "fg", "rt"] },
+    { "id": 7, "name": "07_dlss_rt_sr", "perfil": "07_dlss_rt_sr", "features": ["dlss", "rt", "sr"] }
+  ]
+}

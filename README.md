@@ -24,6 +24,7 @@ Este guia não pressupõe experiência com Unreal Engine ou C++.
 14. [Alterar os testes ou o código](#14-alterar-os-testes-ou-o-código)
 15. [Solução de problemas](#15-solução-de-problemas)
 16. [Linux (Proton)](#16-linux-proton)
+17. [Cena alternativa: Black Myth: Wukong Benchmark Tool](#17-cena-alternativa-black-myth-wukong-benchmark-tool)
 
 ---
 
@@ -579,3 +580,11 @@ O que muda no Linux:
 - Compare a **existência e o tamanho das tendências** (Mann-Kendall), não os valores
   absolutos: `proc_handles` e a memória do processo são medidos de jeitos diferentes
   em cada sistema.
+
+---
+
+## 17. Cena alternativa: Black Myth: Wukong Benchmark Tool
+
+Os mesmos 7 testes, com as mesmas métricas a cada 5 s, o mesmo relatório e o mesmo Mann-Kendall, também
+rodam no **Black Myth: Wukong Benchmark Tool** (gratuito na Steam), usando `python wukong.py` no lugar do
+`run.py`. Os perfis de DLSS são configurados pelo menu do próprio jogo. Passo a passo em [WUKONG.md](WUKONG.md).

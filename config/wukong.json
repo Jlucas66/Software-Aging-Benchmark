@@ -1,0 +1,78 @@
+// Configuracao do benchmark com o Black Myth: Wukong Benchmark Tool (python wukong.py ...).
+// Linhas que comecam com // sao comentarios. Passo a passo em WUKONG.md.
+{
+  "wukong": {
+    // Vazio = acha sozinho pela Steam (appmanifest_3132990.acf)
+    "install_dir": "",
+    // Vazio = %TEMP%/b1/BenchMarkHistory/Tool (Windows) ou o mesmo caminho dentro do prefixo
+    // do Proton (Linux). E onde o jogo grava um JSON por volta concluida.
+    "history_dir": "",
+
+    // Argumentos passados ao jogo pela Steam (steam -applaunch 3132990 ...).
+    // -dx12 garante DirectX 12 (Frame Generation e Full Ray Tracing exigem).
+    // -benchmark comeca o teste sozinho, sem menu. CONFIRA com "python wukong.py validar".
+    "launch_args": ["-dx12", "-benchmark"],
+
+    // "interno"  = UM processo do jogo o teste inteiro (modo de repeticao do Benchmark Tool).
+    //              E o modo certo para software aging. Se a volta terminar e o jogo nao
+    //              repetir, ele tenta as acoes_nova_volta e, se nao der, reabre o jogo
+    //              (fica registrado em "reaberturas_fim_de_volta" no sessao.json).
+    // "relancar" = reabre o jogo a cada volta (~3 min). So para comparar; o estado do processo
+    //              zera a cada volta.
+    "modo_loop": "interno",
+
+    // Teclado e mouse enviados ao jogo. Formato: "Key:Enter", "Click:x,y" (fracoes da janela,
+    // descubra com "python wukong.py calibrar"), "Wait:3000" (ms).
+    // acoes_inicio: depois de abrir (vazio quando o -benchmark ja comeca sozinho).
+    //   Exemplo do menu (medido por terceiros em 16:10; CALIBRE no seu monitor):
+    //   ["Key:Enter", "Wait:4000", "Click:0.115,0.452", "Wait:2500", "Click:0.393,0.580"]
+    "acoes_inicio": [],
+    // Espera antes das acoes_inicio (abertura + compilacao de shaders)
+    "espera_menu_s": 30,
+    // acoes_nova_volta: na tela de resultados, o que comeca outra volta no mesmo processo
+    "acoes_nova_volta": [],
+
+    // Deteccao de "teste rodando" e "volta acabou" pela utilizacao da GPU
+    "gpu_ocupada_pct": 70,
+    "parado_gpu_pct": 40,
+    "parado_minutos": 3,
+    // Quanto esperar o jogo abrir e o teste comecar (shaders na 1a vez)
+    "startup_timeout_s": 900,
+    // Conferida no JSON da 1a volta de cada teste (o jogo grava a resolucao usada)
+    "resolucao_esperada": [1920, 1080],
+
+    // FPS a cada 5 s (o Benchmark Tool so informa FPS no fim de cada volta)
+    "frames": {
+      // "presentmon" (Windows), "mangohud" (Linux) ou "nenhuma"
+      "fonte": "presentmon",
+      // Windows: caminho do PresentMon (console) baixado de github.com/GameTechDev/PresentMon/releases
+      "presentmon_exe": "C:/Ferramentas/PresentMon/PresentMon.exe",
+      // Argumentos extras do PresentMon (ex.: versoes que pedem uma opcao para a coluna FrameType)
+      "presentmon_args": [],
+      // Linux: pasta onde o MangoHud grava os CSVs (output_folder nas opcoes de inicializacao)
+      "mangohud_dir": "~/wukong_mangohud"
+    }
+  },
+
+  "run": {
+    "default_hours": 48,
+    "sample_interval_s": 5,
+    "cooldown_minutes": 10,
+    // Quantas vezes reabrir o jogo se ele FECHAR SOZINHO (travamento) num teste
+    "max_restarts": 20,
+    // Separado dos resultados do UE5-Benchmark: cenas diferentes nao se misturam na analise
+    "output_dir": "BenchmarkRuns/wukong"
+  },
+
+  "monitor": {
+    "gpu_index": 0,
+    "processos_intervalo_s": 60,
+    "processos_cpu_min_pct": 1,
+    "processos_mem_min_mb": 300,
+    "external_cmd": null
+  },
+
+  "report": {
+    "warmup_minutes": 5
+  }
+}

@@ -153,6 +153,28 @@ class GpuReader:
 
 # ----------------------------------------------------------------------------- processo do jogo
 
+def is_game_process(p, exe_name: str) -> bool:
+    """True se o processo `p` e o jogo `exe_name`. No Linux o kernel corta o nome do processo
+    em 15 caracteres ("b1-Win64-Shipping.exe" vira "b1-Win64-Shippi") e o Wine guarda o
+    caminho Windows (com barras invertidas) no argv[0]; por isso confere os tres jeitos."""
+    exe = exe_name.lower()
+    try:
+        name = (p.name() or "").lower()
+    except Exception:
+        return False
+    if name == exe or (len(name) >= 15 and exe.startswith(name)):
+        return True
+    if name.endswith("preloader") or name.startswith("wine"):
+        try:
+            cmd = p.cmdline()
+        except Exception:
+            return False
+        if cmd:
+            base = cmd[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+            return base == exe
+    return False
+
+
 class GameProcess:
     """Mede o processo do jogo pelo sistema operacional (independe do que o jogo informa).
 
@@ -187,11 +209,11 @@ class GameProcess:
             return None
         try:
             root = psutil.Process(self.root_pid)
-            if root.name().lower() == self.exe_name:
+            if is_game_process(root, self.exe_name):
                 return root
             for child in root.children(recursive=True):
                 try:
-                    if child.name().lower() == self.exe_name:
+                    if is_game_process(child, self.exe_name):
                         return child
                 except psutil.Error:
                     continue
@@ -201,7 +223,7 @@ class GameProcess:
         # so entre os processos abertos depois desta execucao.
         for p in psutil.process_iter(["name", "create_time"]):
             try:
-                if (p.info["name"] or "").lower() == self.exe_name and p.info["create_time"] >= self.attached_at - 5:
+                if p.info["create_time"] >= self.attached_at - 5 and is_game_process(p, self.exe_name):
                     return p
             except psutil.Error:
                 continue
@@ -276,7 +298,7 @@ class ProcessLog:
         for p in psutil.process_iter(["name"]):
             pid = p.pid
             name = p.info.get("name") or ""
-            if pid == 0 or name.lower() == self.exe_name:
+            if pid == 0 or is_game_process(p, self.exe_name):
                 continue  # "Ociosidade do Sistema" e o proprio jogo (medido no CSV principal)
             seen.add(pid)
             known = self._procs.get(pid)
