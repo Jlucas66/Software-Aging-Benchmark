@@ -52,6 +52,11 @@
       // --track_frame_type: coluna FrameType, que separa os frames renderizados dos gerados pelo
       // Frame Generation (sem ela, com FG, "fps" conta os dois juntos e "fps_exibido" fica vazio)
       "presentmon_args": ["--track_frame_type"],
+      // O Wukong nao marca os frames gerados (FrameType vem sempre "Application"). Nos testes
+      // com a feature "fg", fps (renderizado) = frames apresentados / fg_fator, e fps_exibido =
+      // apresentados. Conferido em 23/11/2026: teste 2 (sem FG) ~110 FPS, teste 3 (com FG) ~190
+      // apresentados = ~95 renderizados (o FG custa ~13% do FPS renderizado).
+      "fg_fator": 2,
       // Linux: pasta onde o MangoHud grava os CSVs (output_folder nas opcoes de inicializacao)
       "mangohud_dir": "~/wukong_mangohud"
     }

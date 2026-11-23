@@ -99,6 +99,23 @@ def test_presentmon_stdout():
         assert (Path(d) / "t_presentmon_amostra.csv").read_text().startswith("Aviso")
 
 
+def test_presentmon_fg_estimado():
+    # FG 2x sem FrameType util (Wukong): renderizado 10 ms de GPU, gerado 1 ms
+    lines = ["Application,ProcessID,FrameType,MsBetweenPresents,MsGPUBusy,MsBetweenDisplayChange"]
+    for i in range(100):
+        lines.append("b1-Win64-Shipping.exe,1,Application,5.0,10,5.0")
+        lines.append("b1-Win64-Shipping.exe,1,Application,5.5,1,5.5")
+    src = PresentMonSource("x", "b1-Win64-Shipping.exe", Path("pm.csv"), [], Log(), fg_factor=2)
+    out = src.summarize(_rows(lines), 1.05)
+    assert abs(out["avg_fps"] - 100 / 1.05) < 0.01, out
+    assert abs(out["dlssg_fps"] - 200 / 1.05) < 0.01, out
+    assert out["dlssg_frames_presented"] == 2.0
+    assert abs(out["p99_frametime_ms"] - 10.5) < 1e-6 and out["gpu_time_ms"] == 11.0, out
+    # o mesmo dado num teste sem FG: tudo e renderizado
+    out1 = PresentMonSource("x", "b1-Win64-Shipping.exe", Path("pm.csv"), [], Log()).summarize(_rows(lines), 1.05)
+    assert "dlssg_fps" not in out1 and abs(out1["avg_fps"] - 200 / 1.05) < 0.01
+
+
 def test_mangohud():
     with tempfile.TemporaryDirectory() as d:
         src = MangoHudSource(Path(d), Log())

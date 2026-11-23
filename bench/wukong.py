@@ -791,7 +791,13 @@ class WukongRunner:
                               min_cpu_pct=mon_cfg.get("processos_cpu_min_pct", 1.0),
                               min_mem_mb=mon_cfg.get("processos_mem_min_mb", 300))
         engine_csv = raw_dir / "engine_samples.csv"
-        source = make_source(self.w.get("frames") or {}, GAME_EXE, raw_dir, self.log, diag_prefix=sdir / test["name"])
+        frames_cfg = self.w.get("frames") or {}
+        fg_factor = int(frames_cfg.get("fg_fator", 2)) if "fg" in test["features"] else 1
+        if fg_factor > 1:
+            entry["fps_renderizado"] = (f"estimado: frames apresentados / {fg_factor} (Frame Generation {fg_factor}x; "
+                                        "o PresentMon nao marca os frames gerados deste jogo)")
+        source = make_source(frames_cfg, GAME_EXE, raw_dir, self.log, diag_prefix=sdir / test["name"],
+                             fg_factor=fg_factor)
         sampler = FrameSampler(engine_csv, float(run_cfg["sample_interval_s"]), source,
                                lambda: self.alive(current["pid"]), self.log)
         monitor = TestMonitor(engine_csv, sdir / entry["arquivo"], GAME_EXE, self.gpu, started_utc, process_log=proc_log)

@@ -111,9 +111,13 @@ class PresentMonSource:
     name = "presentmon"
 
     def __init__(self, exe: str, process_name: str, csv_path: Path, extra_args: list[str] | None, log,
-                 diag_prefix: Path | None = None):
+                 diag_prefix: Path | None = None, fg_factor: int = 1):
         self.exe = exe
         self.process_name = process_name
+        # Frame Generation sem marcacao dos frames gerados (FrameType sempre "Application", como
+        # no Black Myth: Wukong): com FG 2x o jogo apresenta exatamente 1 frame gerado para cada
+        # renderizado, entao renderizados = apresentados / fg_factor.
+        self.fg_factor = max(1, int(fg_factor or 1))
         self.csv_path = Path(csv_path)          # nao usado para ler; so o nome base
         self.extra_args = list(extra_args or [])
         self.log = log
@@ -251,6 +255,9 @@ class PresentMonSource:
         # Tempo de frame dos frames RENDERIZADOS. Com Frame Generation, o intervalo entre
         # apresentacoes mistura frames gerados; o certo e a diferenca entre inicios de frames
         # renderizados.
+        if not generated and self.fg_factor > 1:
+            return self._summarize_fg_estimated(rows, dt)
+
         frametimes: list[float] = []
         if generated and has_type:
             starts = [_f(r, PM_START) for r in rendered]
@@ -270,6 +277,28 @@ class PresentMonSource:
         if generated and rendered:
             out["dlssg_fps"] = round(displayed / dt, 2)
             out["dlssg_frames_presented"] = round(displayed / len(rendered), 3)
+        return out
+
+
+    def _summarize_fg_estimated(self, rows: list[dict], dt: float) -> dict:
+        """FG sem FrameType util: agrupa os frames apresentados de fg_factor em fg_factor.
+        Cada grupo = 1 frame renderizado + os gerados a partir dele."""
+        k = self.fg_factor
+        intervals = [_f(r, PM_INTERVAL) for r in rows]
+        gpus = [_f(r, PM_GPU) for r in rows]
+        displayed = sum(1 for r in rows if (_f(r, PM_DISPLAYED) or 0) > 0)
+        frametimes = [sum(x for x in intervals[i:i + k] if x is not None)
+                      for i in range(0, len(intervals) - k + 1, k)]
+        gpu_groups = [sum(x for x in gpus[i:i + k] if x is not None)
+                      for i in range(0, len(gpus) - k + 1, k)]
+        out = {"avg_fps": round(len(rows) / k / dt, 2), "frames_no_intervalo": len(rows),
+               "dlssg_fps": round(displayed / dt, 2), "dlssg_frames_presented": float(k)}
+        p99 = percentile([x for x in frametimes if x > 0], 99)
+        if p99 is not None:
+            out["p99_frametime_ms"] = round(p99, 3)
+        if gpu_groups:
+            # tempo de GPU por frame renderizado, incluindo a geracao do(s) frame(s) extra(s)
+            out["gpu_time_ms"] = round(sum(gpu_groups) / len(gpu_groups), 3)
         return out
 
 
@@ -383,12 +412,13 @@ class FrameSampler(threading.Thread):
                 self.rows += 1
 
 
-def make_source(cfg: dict, process_name: str, raw_dir: Path, log, diag_prefix: Path | None = None):
+def make_source(cfg: dict, process_name: str, raw_dir: Path, log, diag_prefix: Path | None = None,
+                fg_factor: int = 1):
     kind = (cfg.get("fonte") or "nenhuma").lower()
     if kind == "presentmon":
         exe = cfg.get("presentmon_exe") or "PresentMon.exe"
         return PresentMonSource(exe, process_name, Path(raw_dir) / "presentmon.csv", cfg.get("presentmon_args"), log,
-                                diag_prefix)
+                                diag_prefix, fg_factor=fg_factor)
     if kind == "mangohud":
         return MangoHudSource(Path(cfg.get("mangohud_dir") or "~/wukong_mangohud"), log)
     return NoSource()

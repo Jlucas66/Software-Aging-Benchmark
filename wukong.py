@@ -374,6 +374,8 @@ def cmd_validar(cfg: WukongConfig, inst: WukongInstall, args) -> int:
             import pandas as pd
             df = pd.read_csv(csv)
             fg_test = "fg" in e.get("features", [])
+            if e.get("fps_renderizado"):
+                note(f"FPS renderizado {e['fps_renderizado']}")
             if fg_test and not ("fps_exibido" in df and df["fps_exibido"].notna().any()):
                 bad("Teste com Frame Generation sem 'fps_exibido': o PresentMon nao separou os frames gerados, "
                     "entao o 'fps' abaixo soma renderizados + gerados. Confira se presentmon_args tem "
