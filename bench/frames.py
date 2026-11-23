@@ -119,11 +119,14 @@ class PresentMonSource:
         self.log = log
         self.proc: subprocess.Popen | None = None
         # Diagnostico que fica na sessao: <teste>_presentmon.log (mensagens do PresentMon) e
-        # <teste>_presentmon_amostra.csv (2000 primeiras linhas; o CSV inteiro passaria de 1 GB em 48 h)
+        # <teste>_presentmon_amostra.csv (o CSV inteiro passaria de 1 GB em 48 h): as 300 primeiras
+        # linhas (abertura/menu) e 3000 linhas a partir de 2 min (a cena ja rodando)
         self.diag_prefix = Path(diag_prefix) if diag_prefix else None
         self._log_file = None
         self._sample_file = None
         self._sample_lines = 0
+        self._sample_t0 = time.monotonic()
+        self._sample_mid = 0
         self._warned_exit = False
         self._rows_seen = 0
         self._header: list[str] | None = None
@@ -152,6 +155,7 @@ class PresentMonSource:
             self.proc = None
             return
         self.log.info("PresentMon medindo os frames de %s", self.process_name)
+        self._sample_t0 = time.monotonic()
         self._reader = threading.Thread(target=self._read_stdout, daemon=True, name="PresentMonReader")
         self._reader.start()
 
@@ -161,11 +165,17 @@ class PresentMonSource:
             line = line.rstrip("\r\n").lstrip("\ufeff")
             if not line.strip():
                 continue
-            if self._sample_file and self._sample_lines < 2000:
-                self._sample_file.write(line + "\n")
-                self._sample_lines += 1
-                if self._sample_lines in (1, 50, 2000):
-                    self._sample_file.flush()
+            if self._sample_file:
+                if self._sample_lines < 300:
+                    self._sample_file.write(line + "\n")
+                    self._sample_lines += 1
+                    if self._sample_lines in (1, 300):
+                        self._sample_file.flush()
+                elif self._sample_mid < 3000 and time.monotonic() - self._sample_t0 >= 120:
+                    self._sample_file.write(line + "\n")
+                    self._sample_mid += 1
+                    if self._sample_mid in (1, 3000):
+                        self._sample_file.flush()
             try:
                 values = next(csv.reader([line]))
             except Exception:
