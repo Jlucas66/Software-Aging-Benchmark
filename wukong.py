@@ -119,10 +119,26 @@ def cmd_check(cfg: WukongConfig, inst: WukongInstall, args) -> int:
             problems += 1
 
     print("\nPerfis dos testes")
+    seen: dict[tuple, str] = {}
+    res = cfg.w.get("resolucao_esperada") or [1920, 1080]
     for t in cfg.tests:
         p = cfg.profile_path(t)
         if p.exists():
             ui = GameIni.load(p).ui()
+            key = tuple(sorted(ui.items()))
+            if key in seen:
+                bad(f"{t['name']} e IGUAL ao perfil {seen[key]}: o jogo nao foi reconfigurado entre um "
+                    "'perfil salvar' e outro (abra o tool, ajuste, saia pelo botao do tool e so entao salve)")
+                problems += 1
+            seen.setdefault(key, t["name"])
+            try:
+                iq = int(float(ui.get("ImageQuality", "0")))
+            except ValueError:
+                iq = 0
+            if iq > int(res[1]):
+                bad(f"{t['name']}: ImageQuality={iq} acima de {res[1]} (altura renderizada maior que Full HD): "
+                    "o perfil foi salvo com o jogo/Windows em resolucao maior que 1920x1080")
+                problems += 1
             ok(f"{t['name']:<16} Dlss={ui.get('Dlss')} SR={ui.get('SuperResolutionSampling')} "
                f"InsertFrame={ui.get('InsertFrame')} Rtx={ui.get('Rtx')}/{ui.get('RtxLevel')} "
                f"ImageQuality={ui.get('ImageQuality')}")
