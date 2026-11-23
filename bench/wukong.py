@@ -612,6 +612,7 @@ class WukongRunner:
         self.w = cfg.w
         self.input = InputDriver(log)
         self.steam = steam_command()
+        self.manual = False   # 1a abertura de cada teste feita pela pessoa (para ligar o loop no menu)
 
     # ---------------- passos
     def apply_profile(self, test: dict, entry: dict):
@@ -633,6 +634,28 @@ class WukongRunner:
         while time.time() - since < timeout:
             pid = find_game_pid(since)
             if pid:
+                return pid
+            time.sleep(2)
+        return None
+
+    def wait_manual_open(self, test: dict) -> int | None:
+        """Modo manual: a pessoa abre o tool pela Steam, liga o loop e inicia o teste."""
+        kill_game()
+        time.sleep(3)
+        since = time.time()
+        timeout = float(self.w.get("manual_timeout_min", 60)) * 60
+        msg = (f"\a\n{'=' * 70}\n  TESTE {test['name']}: perfil aplicado. Agora:\n"
+               "    1. Abra o Black Myth: Wukong Benchmark Tool pela Steam (modo normal)\n"
+               "    2. Ligue o modo de repeticao (loop) - NAO mude nenhuma outra configuracao\n"
+               "    3. Inicie o teste de desempenho\n"
+               f"  Aguardando ate {timeout / 60:.0f} min. A contagem das horas comeca quando a GPU ficar ocupada.\n"
+               f"{'=' * 70}")
+        print(msg, flush=True)
+        self.log.info("Modo manual: aguardando a pessoa abrir o tool e iniciar o teste com o loop ligado.")
+        while time.time() - since < timeout:
+            pid = find_game_pid(since)
+            if pid:
+                self.log.info("Benchmark Tool aberto (pid %d).", pid)
                 return pid
             time.sleep(2)
         return None
@@ -780,7 +803,8 @@ class WukongRunner:
                 entry["execucoes"] += 1
                 self.log.info("Abrindo o Benchmark Tool (execucao %d, faltam %.2f h)",
                               entry["execucoes"], (deadline - time.monotonic()) / 3600)
-                pid = self.launch()
+                manual_now = self.manual and entry["execucoes"] == 1
+                pid = self.wait_manual_open(test) if manual_now else self.launch()
                 if not pid:
                     entry["problemas"].append("o Benchmark Tool nao abriu (Steam aberta e logada?)")
                     self.log.error("O Benchmark Tool nao abriu dentro do tempo limite.")
@@ -789,8 +813,12 @@ class WukongRunner:
                 current["pid"] = pid
                 monitor.new_launch(pid, entry["execucoes"])
                 self.session.save()
-                self.start_lap(pid, first=True)
-                if not self.wait_gpu_busy(pid, float(self.w.get("startup_timeout_s", 900))):
+                if manual_now:
+                    busy_timeout = float(self.w.get("manual_timeout_min", 60)) * 60
+                else:
+                    self.start_lap(pid, first=True)
+                    busy_timeout = float(self.w.get("startup_timeout_s", 900))
+                if not self.wait_gpu_busy(pid, busy_timeout):
                     if not self.alive(pid):
                         entry["problemas"].append("o jogo fechou antes do teste comecar")
                     else:
@@ -799,6 +827,11 @@ class WukongRunner:
                     entry["status"] = "falhou (nao comecou)"
                     break
                 self.log.info("Teste rodando (GPU ocupada).")
+                if manual_now:
+                    # As horas do teste contam a partir daqui, nao do tempo esperando a pessoa
+                    deadline = time.monotonic() + duration_s
+                    start = time.monotonic()
+                    entry["_t0"] = time.time()
 
                 reason = self._watch(pid, deadline, known, test, entry, expected_ui, idle_pct, idle_s,
                                      can_restart_lap=(modo == "interno"))
@@ -892,7 +925,7 @@ class WukongRunner:
             time.sleep(5)
 
 
-def run_session(cfg: WukongConfig, tests: list[dict], duration_s: float):
+def run_session(cfg: WukongConfig, tests: list[dict], duration_s: float, manual: bool = False):
     from .monitor import GpuReader
     from .runner import keep_system_awake, setup_logging
 
@@ -905,6 +938,9 @@ def run_session(cfg: WukongConfig, tests: list[dict], duration_s: float):
     shutil.copy2(inst.ini, backup)
     cooldown_s = float(cfg.bench["run"].get("cooldown_minutes", 10)) * 60
     runner = WukongRunner(cfg, inst, session, gpu, log)
+    runner.manual = manual
+    session.data["configuracao"]["abertura"] = "manual (loop ligado no menu)" if manual else "automatica"
+    session.save()
     try:
         with keep_system_awake(log):
             for i, test in enumerate(tests):

@@ -36,6 +36,8 @@
     "gpu_ocupada_pct": 70,
     "parado_gpu_pct": 40,
     "parado_minutos": 3,
+    // Modo --manual: quanto esperar voce abrir o tool, ligar o loop e iniciar o teste
+    "manual_timeout_min": 60,
     // Quanto esperar o jogo abrir e o teste comecar (shaders na 1a vez)
     "startup_timeout_s": 900,
     // Conferida no JSON da 1a volta de cada teste (o jogo grava a resolucao usada)

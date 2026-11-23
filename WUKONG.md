@@ -117,6 +117,20 @@ arquivo de configuração (assim ele entra nos perfis e funciona sozinho):
    - **Nenhuma diferença:** a opção não fica salva. Use as ações de teclado/mouse (passo 8) para
      ligar o loop (`acoes_inicio`) ou começar outra volta na tela de resultados (`acoes_nova_volta`).
 
+**Modo manual (`--manual`)**: se o loop não fica salvo, você mesmo o liga no começo de cada
+teste. O orquestrador aplica o perfil, fecha o tool se estiver aberto e espera (até 60 min):
+você abre o tool pela Steam, liga o loop **sem mudar mais nada** e inicia o teste. A contagem
+das horas começa quando a GPU fica ocupada; o resto é automático.
+
+```
+python wukong.py validar --tests 2 --minutes 12 --manual
+python wukong.py run --tests 1 --hours 24 --manual
+```
+
+Use um teste por comando: com `--tests all`, você teria que estar presente no início de cada um.
+Se o jogo travar no meio, ele é reaberto automaticamente **sem** o loop; nesse caso as voltas
+seguintes reabrem o jogo e o `sessao.json` registra isso (`reaberturas_fim_de_volta`).
+
 O passo 7 confirma de verdade: várias voltas no mesmo processo = loop funcionando.
 
 O mesmo `perfil diff` serve para descobrir qualquer opção do menu: mude **uma** coisa, saia e

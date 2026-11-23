@@ -11,6 +11,7 @@ Comandos:
     python wukong.py calibrar                   mostra a posicao do mouse na janela do jogo (para acoes)
     python wukong.py validar --tests 2          teste curto (12 min) com diagnostico do loop e do DLSS
     python wukong.py run --tests all --hours 48 bateria completa
+    python wukong.py run --tests 1 --hours 24 --manual   voce abre o tool e liga o loop; o resto e automatico
     python wukong.py report                     relatorio da sessao mais recente
 
 Passo a passo completo em WUKONG.md.
@@ -305,12 +306,13 @@ def cmd_run(cfg: WukongConfig, inst: WukongInstall, args) -> int:
     print(f"  Pausa entre testes    : {cooldown_s / 60:.0f} min")
     print(f"  Termina por volta de  : {datetime.now() + timedelta(seconds=total_s):%d/%m %H:%M}")
     print(f"  Modo de loop          : {cfg.w.get('modo_loop', 'interno')}")
+    print(f"  Abertura              : {'MANUAL (voce abre o tool e liga o loop em cada teste)' if args.manual else 'automatica'}")
     print(f"  Medicao de FPS        : {(cfg.w.get('frames') or {}).get('fonte', 'nenhuma')}")
     print(f"  Resultados em         : {cfg.output_dir}")
     if not args.yes and input("\nComecar? [s/N] ").strip().lower() not in ("s", "sim", "y", "yes"):
         print("Cancelado.")
         return 1
-    session = run_session(cfg, tests, duration_s)
+    session = run_session(cfg, tests, duration_s, manual=args.manual)
     bad_tests = [t for t in session.data["testes"] if t["status"] != "completo"]
     return 1 if bad_tests or len(session.data["testes"]) < len(tests) else 0
 
@@ -323,7 +325,7 @@ def cmd_validar(cfg: WukongConfig, inst: WukongInstall, args) -> int:
         return 1
     print(f"\nValidacao: {', '.join(t['name'] for t in tests)}, {duration_s / 60:.0f} min cada. "
           "Nao mexa no computador durante o teste.\n")
-    session = run_session(cfg, tests, duration_s)
+    session = run_session(cfg, tests, duration_s, manual=args.manual)
     print("\n" + "=" * 70 + "\nDIAGNOSTICO\n")
     for e in session.data["testes"]:
         print(f"{e['nome']}: {e['status']}, {e['amostras']} amostras, {e['voltas']} volta(s) concluida(s), "
@@ -396,6 +398,8 @@ def main() -> int:
         g = r.add_mutually_exclusive_group()
         g.add_argument("--hours", type=float)
         g.add_argument("--minutes", type=float)
+        r.add_argument("--manual", action="store_true",
+                       help="voce abre o tool pela Steam, liga o loop e inicia o teste (1a abertura de cada teste)")
         if name == "run":
             r.add_argument("--yes", action="store_true")
     rep = sub.add_parser("report", help="resumo e graficos")
