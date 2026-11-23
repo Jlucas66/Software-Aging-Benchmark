@@ -128,30 +128,34 @@ Para cada linha da tabela: abra o tool pela Steam → Configurações → ajuste
 **saia pelo botão de sair do tool** (ele só grava o arquivo ao sair) → rode o comando.
 
 **Iguais em todos os testes** (anote os valores no trabalho):
-- Resolução **1920×1080**, mesmo modo de tela em todos (o tool tem *janela sem borda* e *janela*)
+- Resolução **1920×1080**, mesmo modo de tela em todos. Num monitor 4K, o mais seguro é mudar
+  a resolução do **Windows** para 1920×1080 durante a pesquisa (no modo janela sem borda o
+  jogo usa a resolução da área de trabalho)
 - **Mesma predefinição de qualidade** (ex.: *Muito alto*) e o mesmo valor em cada item avançado
-- Nível do **NVIDIA Full Ray Tracing** fixo (ex.: *Muito alto*) nos testes com RT
+- **Ray Tracing Completo de NVIDIA = Sim em todos os 7**, com o **mesmo nível** (ex.: *Médio*).
+  Na Unreal o ray tracing por hardware também ficou ligado em todos os testes
 - VSync e limite de FPS **desligados** (o orquestrador também força isso por cima de todos os perfis)
 - Modo de repetição ligado, se ele fica salvo (passo 5)
 
-| Teste | Super Resolution Sampling | Resolução de amostragem | Frame Generation | Full Ray Tracing | Comando |
+| Teste | Super Resolution Sampling | Resolução de amostragem | Frame Generation | Ray Reconstruction | Comando |
 |---|---|---|---|---|---|
 | 01_sem_dlss | **TSR** | 100 | desligado | desligado | `python wukong.py perfil salvar 01_sem_dlss` |
 | 02_dlss | **DLSS** | 100 (= DLAA) | desligado | desligado | `python wukong.py perfil salvar 02_dlss` |
 | 03_dlss_fg | DLSS | 100 | **ligado** | desligado | `python wukong.py perfil salvar 03_dlss_fg` |
-| 04_dlss_rt | DLSS | 100 | desligado | **ligado** | `python wukong.py perfil salvar 04_dlss_rt` |
+| 04_dlss_rr | DLSS | 100 | desligado | **ligado** | `python wukong.py perfil salvar 04_dlss_rr` |
 | 05_dlss_sr | DLSS | **66** (Qualidade) | desligado | desligado | `python wukong.py perfil salvar 05_dlss_sr` |
-| 06_dlss_fg_rt | DLSS | 100 | **ligado** | **ligado** | `python wukong.py perfil salvar 06_dlss_fg_rt` |
-| 07_dlss_rt_sr | DLSS | **66** | desligado | **ligado** | `python wukong.py perfil salvar 07_dlss_rt_sr` |
+| 06_dlss_fg_rr | DLSS | 100 | **ligado** | **ligado** | `python wukong.py perfil salvar 06_dlss_fg_rr` |
+| 07_dlss_rr_sr | DLSS | **66** | desligado | **ligado** | `python wukong.py perfil salvar 07_dlss_rr_sr` |
 
 No tool a qualidade do DLSS é um controle deslizante: 90–100 = DLAA, 62–89 = Qualidade,
 55–61 = Equilibrado, 40–54 = Desempenho, 25–39 = Ultra Desempenho.
 
-> **Diferença para os testes do UE5-Benchmark:** o tool não tem Ray Reconstruction separado.
-> Aqui a feature 2 é o *Full Ray Tracing*. Registre esse mapeamento no trabalho.
+> O menu deixa ligar o Ray Reconstruction sem escolher DLSS no upscaler, mas ele é parte do
+> DLSS (*DLSS Ray Reconstruction*). Por isso fica **desligado** no `01_sem_dlss`, e nos testes
+> com RR o upscaler continua em DLSS: assim, do teste 2 para o 4, só o RR muda.
 
-Depois: `python wukong.py check` deve mostrar os 7 perfis com os valores de `Dlss`,
-`InsertFrame` e `Rtx` diferentes entre si, como na tabela. Use `perfil mostrar <nome> --tudo`
+Depois: `python wukong.py check` deve mostrar os 7 perfis, com `Rtx` igual em todos e
+`Dlss`/`SuperResolutionSampling`/`InsertFrame` mudando como na tabela. Use `perfil mostrar <nome> --tudo`
 para ver tudo. Os perfis ficam em `config/wukong_perfis/` (vão para o Git, então a máquina do
 laboratório usa exatamente os mesmos).
 
