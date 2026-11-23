@@ -131,13 +131,15 @@ def cmd_check(cfg: WukongConfig, inst: WukongInstall, args) -> int:
                     "'perfil salvar' e outro (abra o tool, ajuste, saia pelo botao do tool e so entao salve)")
                 problems += 1
             seen.setdefault(key, t["name"])
+            prof = GameIni.load(p)
             try:
-                iq = int(float(ui.get("ImageQuality", "0")))
+                ry = int(prof.get("/Script/GSGameSettings.GSGameUserSettings", "ResolutionSizeY") or 0)
+                rx = int(prof.get("/Script/GSGameSettings.GSGameUserSettings", "ResolutionSizeX") or 0)
             except ValueError:
-                iq = 0
-            if iq > int(res[1]):
-                bad(f"{t['name']}: ImageQuality={iq} acima de {res[1]} (altura renderizada maior que Full HD): "
-                    "o perfil foi salvo com o jogo/Windows em resolucao maior que 1920x1080")
+                rx = ry = 0
+            if ry and (rx, ry) != (int(res[0]), int(res[1])):
+                bad(f"{t['name']}: salvo com o jogo em {rx}x{ry}, nao {res[0]}x{res[1]}. No modo janela sem borda o "
+                    "jogo usa a resolucao do Windows: deixe o Windows em 1920x1080 (escala 100%) e salve de novo")
                 problems += 1
             ok(f"{t['name']:<16} Dlss={ui.get('Dlss')} SR={ui.get('SuperResolutionSampling')} "
                f"InsertFrame={ui.get('InsertFrame')} Rtx={ui.get('Rtx')}/{ui.get('RtxLevel')} "
