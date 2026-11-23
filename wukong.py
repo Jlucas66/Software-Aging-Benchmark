@@ -373,6 +373,12 @@ def cmd_validar(cfg: WukongConfig, inst: WukongInstall, args) -> int:
         if csv.exists():
             import pandas as pd
             df = pd.read_csv(csv)
+            fg_test = "fg" in e.get("features", [])
+            if fg_test and not ("fps_exibido" in df and df["fps_exibido"].notna().any()):
+                bad("Teste com Frame Generation sem 'fps_exibido': o PresentMon nao separou os frames gerados, "
+                    "entao o 'fps' abaixo soma renderizados + gerados. Confira se presentmon_args tem "
+                    "--track_frame_type (config/wukong.json) e veja a coluna FrameType no "
+                    f"{e['nome']}_presentmon_amostra.csv")
             if "fps" in df and df["fps"].notna().any():
                 ok(f"FPS medido a cada {cfg.bench['run']['sample_interval_s']} s: media {df['fps'].mean():.1f}"
                    + (f", exibido (FG) {df['fps_exibido'].mean():.1f}" if "fps_exibido" in df and df['fps_exibido'].notna().any() else ""))

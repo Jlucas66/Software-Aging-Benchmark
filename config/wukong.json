@@ -49,8 +49,9 @@
       "fonte": "presentmon",
       // Windows: caminho do PresentMon (console) baixado de github.com/GameTechDev/PresentMon/releases
       "presentmon_exe": "C:/Ferramentas/PresentMon/PresentMon.exe",
-      // Argumentos extras do PresentMon (ex.: versoes que pedem uma opcao para a coluna FrameType)
-      "presentmon_args": [],
+      // --track_frame_type: coluna FrameType, que separa os frames renderizados dos gerados pelo
+      // Frame Generation (sem ela, com FG, "fps" conta os dois juntos e "fps_exibido" fica vazio)
+      "presentmon_args": ["--track_frame_type"],
       // Linux: pasta onde o MangoHud grava os CSVs (output_folder nas opcoes de inicializacao)
       "mangohud_dir": "~/wukong_mangohud"
     }

@@ -37,7 +37,7 @@ ENGINE_HEADER = ["timestamp_utc", "avg_fps", "p99_frametime_ms", "gpu_time_ms", 
 PM_INTERVAL = ("MsBetweenPresents", "FrameTime")
 PM_DISPLAYED = ("DisplayedTime", "MsBetweenDisplayChange")
 PM_GPU = ("MsGPUBusy", "GPUBusy", "MsGPUActive")
-PM_START = ("CPUStartTime", "CPUStartQPCTime", "TimeInSeconds")
+PM_START = ("CPUStartTime", "TimeInMs", "CPUStartQPCTime", "TimeInSeconds")
 PM_RENDERED_TYPES = {"", "application", "unknown", "notset"}
 
 
