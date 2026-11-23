@@ -648,7 +648,8 @@ class WukongRunner:
                "    1. Abra o Black Myth: Wukong Benchmark Tool pela Steam (modo normal)\n"
                "    2. Ligue o modo de repeticao (loop) - NAO mude nenhuma outra configuracao\n"
                "    3. Inicie o teste de desempenho\n"
-               f"  Aguardando ate {timeout / 60:.0f} min. A contagem das horas comeca quando a GPU ficar ocupada.\n"
+               "    4. Volte a este terminal e pressione Enter\n"
+               f"  Aguardando ate {timeout / 60:.0f} min. As horas do teste contam a partir do Enter.\n"
                f"{'=' * 70}")
         print(msg, flush=True)
         self.log.info("Modo manual: aguardando a pessoa abrir o tool e iniciar o teste com o loop ligado.")
@@ -656,6 +657,14 @@ class WukongRunner:
             pid = find_game_pid(since)
             if pid:
                 self.log.info("Benchmark Tool aberto (pid %d).", pid)
+                # O menu do tool ja ocupa a GPU, entao a GPU nao diz quando o TESTE comecou.
+                # A pessoa confirma aqui; as horas contam a partir do Enter.
+                try:
+                    input("\a\n  >>> Quando o teste de desempenho estiver RODANDO com o loop ligado, "
+                          "volte aqui e pressione Enter <<<\n")
+                except EOFError:
+                    pass
+                self.log.info("Inicio do teste confirmado pela pessoa.")
                 return pid
             time.sleep(2)
         return None
@@ -782,7 +791,7 @@ class WukongRunner:
                               min_cpu_pct=mon_cfg.get("processos_cpu_min_pct", 1.0),
                               min_mem_mb=mon_cfg.get("processos_mem_min_mb", 300))
         engine_csv = raw_dir / "engine_samples.csv"
-        source = make_source(self.w.get("frames") or {}, GAME_EXE, raw_dir, self.log)
+        source = make_source(self.w.get("frames") or {}, GAME_EXE, raw_dir, self.log, diag_prefix=sdir / test["name"])
         sampler = FrameSampler(engine_csv, float(run_cfg["sample_interval_s"]), source,
                                lambda: self.alive(current["pid"]), self.log)
         monitor = TestMonitor(engine_csv, sdir / entry["arquivo"], GAME_EXE, self.gpu, started_utc, process_log=proc_log)
@@ -814,7 +823,7 @@ class WukongRunner:
                 monitor.new_launch(pid, entry["execucoes"])
                 self.session.save()
                 if manual_now:
-                    busy_timeout = float(self.w.get("manual_timeout_min", 60)) * 60
+                    busy_timeout = 120   # ja confirmado pela pessoa
                 else:
                     self.start_lap(pid, first=True)
                     busy_timeout = float(self.w.get("startup_timeout_s", 900))

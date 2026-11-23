@@ -105,8 +105,15 @@ class CsvTail:
 class PresentMonSource:
     name = "presentmon"
 
-    def __init__(self, exe: str, process_name: str, csv_path: Path, extra_args: list[str] | None, log):
+    def __init__(self, exe: str, process_name: str, csv_path: Path, extra_args: list[str] | None, log,
+                 diag_prefix: Path | None = None):
         self.exe = exe
+        # Diagnostico que fica na sessao: <teste>_presentmon.log (mensagens do PresentMon) e
+        # <teste>_presentmon_amostra.csv (inicio do CSV, que inteiro passa de 1 GB em 48 h)
+        self.diag_prefix = Path(diag_prefix) if diag_prefix else None
+        self._log_file = None
+        self._warned_exit = False
+        self._rows_seen = 0
         self.process_name = process_name
         self.csv_path = Path(csv_path)
         self.extra_args = list(extra_args or [])
@@ -118,8 +125,15 @@ class PresentMonSource:
         args = [self.exe, "--process_name", self.process_name, "--output_file", str(self.csv_path),
                 "--no_console_stats", "--stop_existing_session", "--session_name", "BenchAging"]
         args += self.extra_args
+        out = subprocess.DEVNULL
+        if self.diag_prefix:
+            self._log_file = open(self.diag_prefix.with_name(self.diag_prefix.name + "_presentmon.log"), "w",
+                                  encoding="utf-8", errors="ignore")
+            self._log_file.write(" ".join(f'"{a}"' if " " in a else a for a in args) + "\n\n")
+            self._log_file.flush()
+            out = self._log_file
         try:
-            self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.proc = subprocess.Popen(args, stdout=out, stderr=subprocess.STDOUT)
             self.log.info("PresentMon medindo os frames de %s", self.process_name)
         except OSError as e:
             self.log.warning("Nao consegui abrir o PresentMon (%s): os CSVs ficam sem FPS.", e)
@@ -132,9 +146,40 @@ class PresentMonSource:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        if self._log_file:
+            self._log_file.close()
+        if self.diag_prefix and self.csv_path.exists():
+            dst = self.diag_prefix.with_name(self.diag_prefix.name + "_presentmon_amostra.csv")
+            with open(self.csv_path, "r", encoding="utf-8", errors="ignore") as src, \
+                    open(dst, "w", encoding="utf-8") as out:
+                for i, line in enumerate(src):
+                    if i >= 2000:
+                        break
+                    out.write(line)
+
+    def _check_alive(self):
+        if self.proc is None or self._warned_exit or self.proc.poll() is None:
+            return
+        self._warned_exit = True
+        tail = ""
+        if self._log_file:
+            self._log_file.flush()
+            try:
+                text = Path(self._log_file.name).read_text(encoding="utf-8", errors="ignore")
+                tail = " | ".join(line.strip() for line in text.splitlines()[-6:] if line.strip())
+            except OSError:
+                pass
+        self.log.warning("PresentMon fechou (codigo %s): sem FPS a partir daqui. %s%s", self.proc.returncode, tail,
+                         " Rode o terminal como ADMINISTRADOR." if self.proc.returncode else "")
 
     def aggregate(self, dt: float) -> dict:
-        rows = [r for r in self.tail.read()
+        self._check_alive()
+        new_rows = self.tail.read()
+        if new_rows and not self._rows_seen:
+            self.log.info("PresentMon: primeiros frames recebidos (colunas: %s)",
+                          ", ".join(list(new_rows[0])[:12]) + ("..." if len(new_rows[0]) > 12 else ""))
+        self._rows_seen += len(new_rows)
+        rows = [r for r in new_rows
                 if (r.get("Application") or self.process_name).lower() == self.process_name.lower()]
         if not rows or dt <= 0:
             return {}
@@ -273,11 +318,12 @@ class FrameSampler(threading.Thread):
                 self.rows += 1
 
 
-def make_source(cfg: dict, process_name: str, raw_dir: Path, log):
+def make_source(cfg: dict, process_name: str, raw_dir: Path, log, diag_prefix: Path | None = None):
     kind = (cfg.get("fonte") or "nenhuma").lower()
     if kind == "presentmon":
         exe = cfg.get("presentmon_exe") or "PresentMon.exe"
-        return PresentMonSource(exe, process_name, Path(raw_dir) / "presentmon.csv", cfg.get("presentmon_args"), log)
+        return PresentMonSource(exe, process_name, Path(raw_dir) / "presentmon.csv", cfg.get("presentmon_args"), log,
+                                diag_prefix)
     if kind == "mangohud":
         return MangoHudSource(Path(cfg.get("mangohud_dir") or "~/wukong_mangohud"), log)
     return NoSource()

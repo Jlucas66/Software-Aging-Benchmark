@@ -54,6 +54,16 @@ def note(m):
     print(f"  [..] {m}")
 
 
+def is_admin() -> bool:
+    if not is_windows():
+        return True
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
 def game_running() -> bool:
     return find_game_pid(0) is not None
 
@@ -127,6 +137,12 @@ def cmd_check(cfg: WukongConfig, inst: WukongInstall, args) -> int:
         exe = fr.get("presentmon_exe") or "PresentMon.exe"
         if Path(exe).exists() or shutil.which(exe):
             ok(f"PresentMon: {exe}")
+            if is_admin():
+                ok("Terminal como administrador (o PresentMon precisa)")
+            else:
+                bad("Terminal SEM administrador: o PresentMon nao consegue ler os frames. "
+                    "Feche e abra o PowerShell com 'Executar como administrador'")
+                problems += 1
         else:
             bad(f"PresentMon nao encontrado ({exe}). Baixe em github.com/GameTechDev/PresentMon/releases")
             problems += 1
@@ -284,6 +300,10 @@ def _preflight(cfg, inst, tests) -> bool:
         return False
     if game_running():
         print("Feche o Benchmark Tool antes de comecar.")
+        return False
+    if (cfg.w.get("frames") or {}).get("fonte") == "presentmon" and not is_admin():
+        print("O PresentMon precisa do terminal como ADMINISTRADOR (senao os CSVs ficam sem FPS).")
+        print("Feche este PowerShell e abra de novo com 'Executar como administrador'.")
         return False
     return True
 
