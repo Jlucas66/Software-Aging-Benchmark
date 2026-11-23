@@ -6,13 +6,17 @@
 // define, o perfil guarda, e o JSON de cada volta confirma o que o jogo usou.
 //
 // Mapeamento das features (mesma logica dos testes do UE5-Benchmark).
-// NVIDIA Full Ray Tracing LIGADO em TODOS os testes, no MESMO nivel (como o ray tracing por
-// hardware, ligado em todos os testes da Unreal). O que muda entre os testes:
-//   sem DLSS : Super Resolution Sampling = TSR, resolucao de amostragem 100, Ray Reconstruction desligado
-//   dlss     : DLSS com amostragem 100 (= DLAA: a rede roda sem reduzir a resolucao)
-//   fg       : Frame Generation ligado (DLSS)
-//   rr       : DLSS Ray Reconstruction ligado
-//   sr       : DLSS com amostragem 66 (modo Qualidade: renderiza menor e reconstroi)
+// NVIDIA Full Ray Tracing LIGADO em TODOS os testes, no MESMO nivel (Medio), predefinicao Ultra.
+// No menu em portugues, a porcentagem de renderizacao (em ingles "Super Resolution") aparece
+// como "Nitidez do Escalonamento"; o metodo ("Super Resolution Sampling") como
+// "Escalonamento da Resolucao".
+//   sem DLSS : Escalonamento = TSR, porcentagem 100
+//   dlss     : DLSS com porcentagem 100 (= DLAA: a rede roda sem reduzir a resolucao)
+//   fg       : Geracao de Quadros (DLSS Frame Generation 2x)
+//   sr       : DLSS com porcentagem 67 (modo Qualidade: renderiza em 67% e reconstroi)
+// O Benchmark Tool NAO tem DLSS Ray Reconstruction (anunciado, mas o jogo saiu sem ele):
+// os testes com RR existem so na cena da Unreal. 06_dlss_fg_sr combina as duas features
+// disponiveis aqui.
 //
 // "todos": aplicado POR CIMA de todos os perfis, para nada variar sem querer entre testes.
 //   VSync e limite de FPS desligados (senao a GPU nao e estressada ao maximo). So entram aqui
@@ -29,9 +33,7 @@
     { "id": 1, "name": "01_sem_dlss",   "perfil": "01_sem_dlss",   "features": [] },
     { "id": 2, "name": "02_dlss",       "perfil": "02_dlss",       "features": ["dlss"] },
     { "id": 3, "name": "03_dlss_fg",    "perfil": "03_dlss_fg",    "features": ["dlss", "fg"] },
-    { "id": 4, "name": "04_dlss_rr",    "perfil": "04_dlss_rr",    "features": ["dlss", "rr"] },
     { "id": 5, "name": "05_dlss_sr",    "perfil": "05_dlss_sr",    "features": ["dlss", "sr"] },
-    { "id": 6, "name": "06_dlss_fg_rr", "perfil": "06_dlss_fg_rr", "features": ["dlss", "fg", "rr"] },
-    { "id": 7, "name": "07_dlss_rr_sr", "perfil": "07_dlss_rr_sr", "features": ["dlss", "rr", "sr"] }
+    { "id": 6, "name": "06_dlss_fg_sr", "perfil": "06_dlss_fg_sr", "features": ["dlss", "fg", "sr"] }
   ]
 }

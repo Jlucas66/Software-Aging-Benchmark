@@ -1,6 +1,6 @@
 # Cena Black Myth: Wukong (Benchmark Tool)
 
-Este guia roda a pesquisa (7 testes, duração configurável, uma linha de métricas a cada 5 s,
+Este guia roda a pesquisa (5 testes nesta cena, duração configurável, uma linha de métricas a cada 5 s,
 DLSS e features escolhidos antes de cada teste) no **Black Myth: Wukong Benchmark Tool**, o
 benchmark gratuito da Game Science na Steam. O relatório e o Mann-Kendall são os mesmos do
 UE5-Benchmark; muda só quem desenha a cena.
@@ -14,7 +14,7 @@ Tudo é feito pelo `wukong.py` (no lugar do `run.py`).
 3. [Medição de FPS: Windows (PresentMon)](#3-medição-de-fps-windows-presentmon)
 4. [Medição de FPS: Linux (MangoHud) e Proton](#4-medição-de-fps-linux-mangohud-e-proton)
 5. [Modo de repetição (loop)](#5-modo-de-repetição-loop)
-6. [Criar os perfis dos 7 testes](#6-criar-os-perfis-dos-7-testes)
+6. [Criar os perfis dos 5 testes](#6-criar-os-perfis-dos-5-testes)
 7. [Validar](#7-validar)
 8. [Quando o teste não começa sozinho: ações de teclado e mouse](#8-quando-o-teste-não-começa-sozinho-ações-de-teclado-e-mouse)
 9. [Rodar a bateria](#9-rodar-a-bateria)
@@ -136,7 +136,7 @@ O passo 7 confirma de verdade: várias voltas no mesmo processo = loop funcionan
 O mesmo `perfil diff` serve para descobrir qualquer opção do menu: mude **uma** coisa, saia e
 compare.
 
-## 6. Criar os perfis dos 7 testes
+## 6. Criar os perfis dos 5 testes
 
 Para cada linha da tabela: abra o tool pela Steam → Configurações → ajuste → aplique →
 **saia pelo botão de sair do tool** (ele só grava o arquivo ao sair) → rode o comando.
@@ -146,30 +146,30 @@ Para cada linha da tabela: abra o tool pela Steam → Configurações → ajuste
   a resolução do **Windows** para 1920×1080 durante a pesquisa (no modo janela sem borda o
   jogo usa a resolução da área de trabalho)
 - **Mesma predefinição de qualidade** (ex.: *Muito alto*) e o mesmo valor em cada item avançado
-- **Ray Tracing Completo de NVIDIA = Sim em todos os 7**, com o **mesmo nível** (ex.: *Médio*).
+- **Ray Tracing Completo de NVIDIA = Sim em todos os 5**, com o **mesmo nível** (ex.: *Médio*).
   Na Unreal o ray tracing por hardware também ficou ligado em todos os testes
 - VSync e limite de FPS **desligados** (o orquestrador também força isso por cima de todos os perfis)
 - Modo de repetição ligado, se ele fica salvo (passo 5)
 
-| Teste | Super Resolution Sampling | Resolução de amostragem | Frame Generation | Ray Reconstruction | Comando |
-|---|---|---|---|---|---|
-| 01_sem_dlss | **TSR** | 100 | desligado | desligado | `python wukong.py perfil salvar 01_sem_dlss` |
-| 02_dlss | **DLSS** | 100 (= DLAA) | desligado | desligado | `python wukong.py perfil salvar 02_dlss` |
-| 03_dlss_fg | DLSS | 100 | **ligado** | desligado | `python wukong.py perfil salvar 03_dlss_fg` |
-| 04_dlss_rr | DLSS | 100 | desligado | **ligado** | `python wukong.py perfil salvar 04_dlss_rr` |
-| 05_dlss_sr | DLSS | **66** (Qualidade) | desligado | desligado | `python wukong.py perfil salvar 05_dlss_sr` |
-| 06_dlss_fg_rr | DLSS | 100 | **ligado** | **ligado** | `python wukong.py perfil salvar 06_dlss_fg_rr` |
-| 07_dlss_rr_sr | DLSS | **66** | desligado | **ligado** | `python wukong.py perfil salvar 07_dlss_rr_sr` |
+No menu em português, a **porcentagem de renderização** (em inglês *Super Resolution*) aparece
+como **"Nitidez do Escalonamento"**, e o método (*Super Resolution Sampling*) como
+**"Escalonamento da Resolução"**. Confira no arquivo: com a porcentagem em 100,
+`DesiredScreenWidth=1920` e `DesiredScreenHeight=1080`; em 50, 960×540.
 
-No tool a qualidade do DLSS é um controle deslizante: 90–100 = DLAA, 62–89 = Qualidade,
-55–61 = Equilibrado, 40–54 = Desempenho, 25–39 = Ultra Desempenho.
+| Teste | Escalonamento da Resolução | Nitidez do Escalonamento (%) | Geração de Quadros | Comando |
+|---|---|---|---|---|
+| 01_sem_dlss | **TSR** | 100 | Não | `python wukong.py perfil salvar 01_sem_dlss` |
+| 02_dlss | **DLSS** | 100 (= DLAA) | Não | `python wukong.py perfil salvar 02_dlss` |
+| 03_dlss_fg | DLSS | 100 | **Sim** | `python wukong.py perfil salvar 03_dlss_fg` |
+| 05_dlss_sr | DLSS | **67** (Qualidade) | Não | `python wukong.py perfil salvar 05_dlss_sr` |
+| 06_dlss_fg_sr | DLSS | **67** | **Sim** | `python wukong.py perfil salvar 06_dlss_fg_sr` |
 
-> O menu deixa ligar o Ray Reconstruction sem escolher DLSS no upscaler, mas ele é parte do
-> DLSS (*DLSS Ray Reconstruction*). Por isso fica **desligado** no `01_sem_dlss`, e nos testes
-> com RR o upscaler continua em DLSS: assim, do teste 2 para o 4, só o RR muda.
+> O Benchmark Tool **não tem DLSS Ray Reconstruction** (anunciado pela NVIDIA, mas o jogo saiu
+> sem ele; a DLL `nvngx_dlssd.dll` vem na pasta, sem opção no menu). Os testes com RR ficam só
+> na cena da Unreal; aqui o `06_dlss_fg_sr` combina as duas features disponíveis.
 
-Depois: `python wukong.py check` deve mostrar os 7 perfis, com `Rtx` igual em todos e
-`Dlss`/`SuperResolutionSampling`/`InsertFrame` mudando como na tabela. Use `perfil mostrar <nome> --tudo`
+Depois: `python wukong.py check` deve mostrar os 5 perfis, com `Rtx` igual em todos e
+`SuperResolutionSampling`/`InsertFrame` mudando como na tabela. Use `perfil mostrar <nome> --tudo`
 para ver tudo. Os perfis ficam em `config/wukong_perfis/` (vão para o Git, então a máquina do
 laboratório usa exatamente os mesmos).
 
