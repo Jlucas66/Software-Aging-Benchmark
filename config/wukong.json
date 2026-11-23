@@ -40,8 +40,10 @@
     "manual_timeout_min": 60,
     // Quanto esperar o jogo abrir e o teste comecar (shaders na 1a vez)
     "startup_timeout_s": 900,
-    // Conferida no JSON da 1a volta de cada teste (o jogo grava a resolucao usada)
-    "resolucao_esperada": [1920, 1080],
+    // Resolucao de todos os perfis (o "check" confere). No laboratorio os perfis do Wukong foram
+    // salvos com o Windows em 3840x2160 (janela sem borda = resolucao do Windows); a cena da
+    // Unreal rodou em 1920x1080. Compare os testes do Wukong entre si.
+    "resolucao_esperada": [3840, 2160],
 
     // FPS a cada 5 s (o Benchmark Tool so informa FPS no fim de cada volta)
     "frames": {

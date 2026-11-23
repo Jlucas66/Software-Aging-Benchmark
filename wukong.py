@@ -139,7 +139,7 @@ def cmd_check(cfg: WukongConfig, inst: WukongInstall, args) -> int:
                 rx = ry = 0
             if ry and (rx, ry) != (int(res[0]), int(res[1])):
                 bad(f"{t['name']}: salvo com o jogo em {rx}x{ry}, nao {res[0]}x{res[1]}. No modo janela sem borda o "
-                    "jogo usa a resolucao do Windows: deixe o Windows em 1920x1080 (escala 100%) e salve de novo")
+                    "jogo usa a resolucao do Windows: deixe o Windows na resolucao esperada e salve o perfil de novo")
                 problems += 1
             ok(f"{t['name']:<16} Dlss={ui.get('Dlss')} SR={ui.get('SuperResolutionSampling')} "
                f"InsertFrame={ui.get('InsertFrame')} Rtx={ui.get('Rtx')}/{ui.get('RtxLevel')} "

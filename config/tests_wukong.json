@@ -24,9 +24,9 @@
 {
   "todos": {
     "ui": { "Vsync": "0", "LockFrameRate": "0" },
-    "principal": { "bUseVSync": "False", "FrameRateLimit": "0.000000",
-                   "ResolutionSizeX": "1920", "ResolutionSizeY": "1080",
-                   "LastUserConfirmedResolutionSizeX": "1920", "LastUserConfirmedResolutionSizeY": "1080" }
+    // A resolucao NAO e forcada: vale a de cada perfil (todos salvos em 3840x2160, a resolucao
+    // do Windows no laboratorio). O "check" confere se todos estao na resolucao_esperada.
+    "principal": { "bUseVSync": "False", "FrameRateLimit": "0.000000" }
   },
 
   "tests": [
