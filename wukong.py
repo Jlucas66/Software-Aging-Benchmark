@@ -354,7 +354,8 @@ def cmd_validar(cfg: WukongConfig, inst: WukongInstall, args) -> int:
             bad("O teste nao comecou sozinho. O argumento -benchmark nao funcionou nesta versao: configure "
                 "'acoes_inicio' (WUKONG.md, passo 6).")
         if e["voltas"] == 0 and e["status"] == "completo":
-            note("Nenhuma volta terminou no periodo (cada volta leva ~3 min). Rode com --minutes 12 ou mais.")
+            note("Nenhum arquivo de resultado por volta: normal no modo de repeticao (o tool so grava ao parar). "
+                 "Confira o loop pela VRAM, que cai a cada volta, e pela coluna execucao = 1.")
         if e.get("reaberturas_fim_de_volta"):
             bad(f"O jogo parou {e['reaberturas_fim_de_volta']} vez(es) no fim da volta e foi reaberto: o modo de "
                 "repeticao NAO esta ativo. Para aging, ligue-o (WUKONG.md, passo 5) ou use acoes_nova_volta.")

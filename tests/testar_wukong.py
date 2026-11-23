@@ -46,35 +46,57 @@ def test_ini():
         ["InsertFrame: perfil=1, jogo usou=0"]
 
 
+def _rows(lines):
+    import csv as _csv
+    r = list(_csv.reader(lines))
+    return [dict(zip(r[0], v)) for v in r[1:]]
+
+
 def test_presentmon_fg():
-    with tempfile.TemporaryDirectory() as d:
-        csv = Path(d) / "pm.csv"
-        rows = ["Application,ProcessID,FrameType,CPUStartTime,FrameTime,GPUBusy,DisplayedTime"]
-        t = 0.0
-        for i in range(100):           # 100 renderizados a 20 ms + 100 gerados (FG 2x)
-            rows.append(f"b1-Win64-Shipping.exe,1,Application,{t:.3f},10,15,10")
-            rows.append(f"b1-Win64-Shipping.exe,1,NVIDIA,{t + 10:.3f},10,0,10")
-            t += 20.0
-        rows.append("outro.exe,2,Application,0,5,5,5")
-        csv.write_text("\n".join(rows) + "\n")
-        src = PresentMonSource("x", "b1-Win64-Shipping.exe", csv, [], Log())
-        out = src.aggregate(2.0)
-        assert out["avg_fps"] == 50.0, out          # renderizados / 2 s
-        assert out["dlssg_fps"] == 100.0, out       # exibidos / 2 s
-        assert out["dlssg_frames_presented"] == 2.0
-        assert abs(out["p99_frametime_ms"] - 20.0) < 1e-6, out
-        assert out["gpu_time_ms"] == 15.0
-        assert src.aggregate(5.0) == {}             # nada novo
+    # Colunas do PresentMon 2.4+ (Ms*), 100 renderizados a 20 ms + 100 gerados (FG 2x)
+    lines = ["Application,ProcessID,FrameType,CPUStartTime,MsBetweenPresents,MsGPUBusy,DisplayedTime"]
+    t = 0.0
+    for i in range(100):
+        lines.append(f"b1-Win64-Shipping.exe,1,Application,{t:.3f},10,15,10")
+        lines.append(f"b1-Win64-Shipping.exe,1,NVIDIA,{t + 10:.3f},10,0,10")
+        t += 20.0
+    lines.append("outro.exe,2,Application,0,5,5,5")
+    src = PresentMonSource("x", "b1-Win64-Shipping.exe", Path("pm.csv"), [], Log())
+    out = src.summarize(_rows(lines), 2.0)
+    assert out["avg_fps"] == 50.0, out          # renderizados / 2 s
+    assert out["dlssg_fps"] == 100.0, out       # exibidos / 2 s
+    assert out["dlssg_frames_presented"] == 2.0
+    assert abs(out["p99_frametime_ms"] - 20.0) < 1e-6, out
+    assert out["gpu_time_ms"] == 15.0
+    assert src.summarize([], 5.0) == {}
 
 
 def test_presentmon_v1_sem_fg():
+    lines = ["Application,ProcessID,TimeInSeconds,MsBetweenPresents,MsBetweenDisplayChange,MsGPUActive"]
+    lines += [f"b1-Win64-Shipping.exe,1,{i * 0.0125:.4f},12.5,12.5,10" for i in range(80)]
+    out = PresentMonSource("x", "b1-Win64-Shipping.exe", Path("pm.csv"), [], Log()).summarize(_rows(lines), 1.0)
+    assert out["avg_fps"] == 80.0 and "dlssg_fps" not in out, out
+
+
+def test_presentmon_stdout():
+    """Le o CSV pelo stdout de um PresentMon falso (com BOM e uma mensagem antes)."""
+    import os
+    import time as _t
+    if os.name == "nt":
+        return
     with tempfile.TemporaryDirectory() as d:
-        csv = Path(d) / "pm.csv"
-        rows = ["Application,ProcessID,TimeInSeconds,MsBetweenPresents,MsBetweenDisplayChange,MsGPUActive"]
-        rows += [f"b1-Win64-Shipping.exe,1,{i * 0.0125:.4f},12.5,12.5,10" for i in range(80)]
-        csv.write_text("\n".join(rows) + "\n")
-        out = PresentMonSource("x", "b1-Win64-Shipping.exe", csv, [], Log()).aggregate(1.0)
-        assert out["avg_fps"] == 80.0 and "dlssg_fps" not in out, out
+        fake = Path(d) / "pm.sh"
+        fake.write_text("#!/bin/sh\nprintf 'Aviso qualquer\\n'\nprintf '\\357\\273\\277Application,ProcessID,MsBetweenPresents\\n'\n"
+                        "i=0; while [ $i -lt 60 ]; do echo 'b1-Win64-Shipping.exe,1,16.6'; i=$((i+1)); done\nsleep 30\n")
+        fake.chmod(0o755)
+        src = PresentMonSource(str(fake), "b1-Win64-Shipping.exe", Path(d) / "x.csv", [], Log(), diag_prefix=Path(d) / "t")
+        src.start()
+        _t.sleep(1.0)
+        out = src.aggregate(1.0)
+        src.stop()
+        assert out["avg_fps"] == 60.0, out
+        assert "Aviso qualquer" in (Path(d) / "t_presentmon.log").read_text()
+        assert (Path(d) / "t_presentmon_amostra.csv").read_text().startswith("Aviso")
 
 
 def test_mangohud():

@@ -26,7 +26,7 @@ import math
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -34,10 +34,10 @@ ENGINE_HEADER = ["timestamp_utc", "avg_fps", "p99_frametime_ms", "gpu_time_ms", 
                  "render_thread_ms", "dlssg_fps", "dlssg_frames_presented", "frames_no_intervalo"]
 
 # Nomes das colunas no PresentMon 2.x e no 1.x (--v1_metrics), nessa ordem de preferencia
-PM_INTERVAL = ("FrameTime", "MsBetweenPresents")
+PM_INTERVAL = ("MsBetweenPresents", "FrameTime")
 PM_DISPLAYED = ("DisplayedTime", "MsBetweenDisplayChange")
-PM_GPU = ("GPUBusy", "MsGPUBusy", "MsGPUActive")
-PM_START = ("CPUStartTime", "TimeInSeconds")
+PM_GPU = ("MsGPUBusy", "GPUBusy", "MsGPUActive")
+PM_START = ("CPUStartTime", "CPUStartQPCTime", "TimeInSeconds")
 PM_RENDERED_TYPES = {"", "application", "unknown", "notset"}
 
 
@@ -103,41 +103,85 @@ class CsvTail:
 # ----------------------------------------------------------------------------- fontes
 
 class PresentMonSource:
+    """PresentMon com a saida CSV no STDOUT (--output_stdout), lida por uma thread.
+
+    Nao da para ler o --output_file enquanto o PresentMon escreve: ele abre o arquivo com
+    _wfopen_s, que bloqueia o arquivo para outros programas (no Windows, "acesso negado")."""
+
     name = "presentmon"
 
     def __init__(self, exe: str, process_name: str, csv_path: Path, extra_args: list[str] | None, log,
                  diag_prefix: Path | None = None):
         self.exe = exe
-        # Diagnostico que fica na sessao: <teste>_presentmon.log (mensagens do PresentMon) e
-        # <teste>_presentmon_amostra.csv (inicio do CSV, que inteiro passa de 1 GB em 48 h)
-        self.diag_prefix = Path(diag_prefix) if diag_prefix else None
-        self._log_file = None
-        self._warned_exit = False
-        self._rows_seen = 0
         self.process_name = process_name
-        self.csv_path = Path(csv_path)
+        self.csv_path = Path(csv_path)          # nao usado para ler; so o nome base
         self.extra_args = list(extra_args or [])
         self.log = log
         self.proc: subprocess.Popen | None = None
-        self.tail = CsvTail(self.csv_path)
+        # Diagnostico que fica na sessao: <teste>_presentmon.log (mensagens do PresentMon) e
+        # <teste>_presentmon_amostra.csv (2000 primeiras linhas; o CSV inteiro passaria de 1 GB em 48 h)
+        self.diag_prefix = Path(diag_prefix) if diag_prefix else None
+        self._log_file = None
+        self._sample_file = None
+        self._sample_lines = 0
+        self._warned_exit = False
+        self._rows_seen = 0
+        self._header: list[str] | None = None
+        self._buffer: list[dict] = []
+        self._lock = threading.Lock()
+        self._reader: threading.Thread | None = None
 
     def start(self):
-        args = [self.exe, "--process_name", self.process_name, "--output_file", str(self.csv_path),
+        args = [self.exe, "--process_name", self.process_name, "--output_stdout",
                 "--no_console_stats", "--stop_existing_session", "--session_name", "BenchAging"]
         args += self.extra_args
-        out = subprocess.DEVNULL
+        err = subprocess.DEVNULL
         if self.diag_prefix:
             self._log_file = open(self.diag_prefix.with_name(self.diag_prefix.name + "_presentmon.log"), "w",
                                   encoding="utf-8", errors="ignore")
             self._log_file.write(" ".join(f'"{a}"' if " " in a else a for a in args) + "\n\n")
             self._log_file.flush()
-            out = self._log_file
+            err = self._log_file
+            self._sample_file = open(self.diag_prefix.with_name(self.diag_prefix.name + "_presentmon_amostra.csv"),
+                                     "w", encoding="utf-8")
         try:
-            self.proc = subprocess.Popen(args, stdout=out, stderr=subprocess.STDOUT)
-            self.log.info("PresentMon medindo os frames de %s", self.process_name)
+            self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=err, bufsize=1,
+                                         text=True, encoding="utf-8", errors="ignore")
         except OSError as e:
             self.log.warning("Nao consegui abrir o PresentMon (%s): os CSVs ficam sem FPS.", e)
             self.proc = None
+            return
+        self.log.info("PresentMon medindo os frames de %s", self.process_name)
+        self._reader = threading.Thread(target=self._read_stdout, daemon=True, name="PresentMonReader")
+        self._reader.start()
+
+    def _read_stdout(self):
+        assert self.proc and self.proc.stdout
+        for line in self.proc.stdout:
+            line = line.rstrip("\r\n").lstrip("\ufeff")
+            if not line.strip():
+                continue
+            if self._sample_file and self._sample_lines < 2000:
+                self._sample_file.write(line + "\n")
+                self._sample_lines += 1
+                if self._sample_lines in (1, 50, 2000):
+                    self._sample_file.flush()
+            try:
+                values = next(csv.reader([line]))
+            except Exception:
+                continue
+            if self._header is None:
+                if "Application" in values or "ProcessID" in values:
+                    self._header = [v.strip() for v in values]
+                else:   # texto que nao e CSV (mensagem do PresentMon)
+                    if self._log_file:
+                        self._log_file.write(line + "\n")
+                        self._log_file.flush()
+                continue
+            if values == self._header:     # cabecalho repetido
+                continue
+            with self._lock:
+                self._buffer.append(dict(zip(self._header, values)))
 
     def stop(self):
         if self.proc and self.proc.poll() is None:
@@ -146,16 +190,14 @@ class PresentMonSource:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        if self._log_file:
-            self._log_file.close()
-        if self.diag_prefix and self.csv_path.exists():
-            dst = self.diag_prefix.with_name(self.diag_prefix.name + "_presentmon_amostra.csv")
-            with open(self.csv_path, "r", encoding="utf-8", errors="ignore") as src, \
-                    open(dst, "w", encoding="utf-8") as out:
-                for i, line in enumerate(src):
-                    if i >= 2000:
-                        break
-                    out.write(line)
+        if self._reader:
+            self._reader.join(timeout=5)
+        for f in (self._log_file, self._sample_file):
+            if f:
+                try:
+                    f.close()
+                except Exception:
+                    pass
 
     def _check_alive(self):
         if self.proc is None or self._warned_exit or self.proc.poll() is None:
@@ -172,13 +214,21 @@ class PresentMonSource:
         self.log.warning("PresentMon fechou (codigo %s): sem FPS a partir daqui. %s%s", self.proc.returncode, tail,
                          " Rode o terminal como ADMINISTRADOR." if self.proc.returncode else "")
 
+    def read_rows(self) -> list[dict]:
+        with self._lock:
+            rows, self._buffer = self._buffer, []
+        return rows
+
     def aggregate(self, dt: float) -> dict:
         self._check_alive()
-        new_rows = self.tail.read()
+        new_rows = self.read_rows()
         if new_rows and not self._rows_seen:
             self.log.info("PresentMon: primeiros frames recebidos (colunas: %s)",
                           ", ".join(list(new_rows[0])[:12]) + ("..." if len(new_rows[0]) > 12 else ""))
         self._rows_seen += len(new_rows)
+        return self.summarize(new_rows, dt)
+
+    def summarize(self, new_rows: list[dict], dt: float) -> dict:
         rows = [r for r in new_rows
                 if (r.get("Application") or self.process_name).lower() == self.process_name.lower()]
         if not rows or dt <= 0:
@@ -299,19 +349,24 @@ class FrameSampler(threading.Thread):
                 w.writeheader()
                 f.flush()
             last = time.monotonic()
+            self._t0_mono, self._t0_wall = last, datetime.now(timezone.utc)
             while not self._stop_event.wait(self.interval_s - ((time.monotonic() - last) % self.interval_s)):
                 now = time.monotonic()
                 dt, last = now - last, now
                 try:
                     data = self.source.aggregate(dt)
                 except Exception as e:  # a medicao de frames nunca derruba o teste
-                    self.log.debug("Fonte de frames falhou: %s", e)
+                    if not getattr(self, "_warned_error", False):
+                        self._warned_error = True
+                        self.log.warning("Leitura dos frames falhou: %s", e)
                     data = {}
                 if not self.is_running():
                     continue
                 self.last_fps = data.get("avg_fps")
-                row = {"timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-                       .replace("+00:00", "Z")}
+                # Relogio monotonico: se o Windows acertar a hora no meio do teste, o tempo
+                # das amostras nao volta para tras
+                ts = self._t0_wall + timedelta(seconds=now - self._t0_mono)
+                row = {"timestamp_utc": ts.isoformat(timespec="milliseconds").replace("+00:00", "Z")}
                 row.update(data)
                 w.writerow(row)
                 f.flush()
