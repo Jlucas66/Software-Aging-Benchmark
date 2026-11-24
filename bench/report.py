@@ -4,6 +4,7 @@ Grava em <sessao>/relatorio/ (ou BenchmarkRuns/comparacao_<data>/ com varias ses
     resumo.csv        uma linha por teste: medias, inicio x fim das metricas de aging, contexto
     processos_mais_ativos.csv   os outros processos que mais usaram CPU em cada teste
     <teste>.png       FPS, memoria do jogo, handles, VRAM, temperatura e clock ao longo do tempo
+    <teste>_variaveis_N.png   um grafico por variavel do CSV (todas), 6 por imagem, eixo x = tempo
     comparacao.png    os testes lado a lado
 
 A analise estatistica de tendencia (Mann-Kendall) fica em mann_kendall.py.
@@ -165,6 +166,77 @@ def plot_test(t: TestResult, warmup_min: float, out_png: Path) -> None:
     plt.close(fig)
 
 
+# Todas as variaveis do CSV de 5 em 5 s: (coluna, titulo, unidade). Colunas novas que aparecerem
+# no CSV entram no fim automaticamente, com o nome da coluna como titulo.
+VARIABLES = [
+    ("fps", "FPS renderizado", "FPS"),
+    ("fps_exibido", "FPS exibido (com Frame Generation)", "FPS"),
+    ("frametime_p99_ms", "Tempo de quadro p99", "ms"),
+    ("gpu_time_ms", "Tempo de GPU por quadro", "ms"),
+    ("game_thread_ms", "Game thread", "ms"),
+    ("render_thread_ms", "Render thread", "ms"),
+    ("proc_mem_mb", "Memória física do jogo (Working Set)", "MB"),
+    ("proc_private_mb", "Memória privada do jogo (Private Bytes)", "MB"),
+    ("proc_threads", "Threads do jogo", ""),
+    ("proc_handles", "Handles abertos pelo jogo", ""),
+    ("proc_cpu_pct", "CPU usada pelo jogo", "%"),
+    ("cpu_total_pct", "CPU total do sistema", "%"),
+    ("cpu_nucleo_max_pct", "Núcleo de CPU mais ocupado", "%"),
+    ("outros_cpu_pct", "CPU dos outros processos", "%"),
+    ("ram_mb", "RAM total em uso no sistema", "MB"),
+    ("vram_mb", "VRAM em uso", "MB"),
+    ("gpu_util_pct", "Uso da GPU", "%"),
+    ("gpu_temp_c", "Temperatura da GPU", "°C"),
+    ("gpu_clock_mhz", "Clock da GPU", "MHz"),
+    ("gpu_power_w", "Consumo da GPU", "W"),
+    ("throttle_power", "Redução de clock por energia (1 = ativa)", "fração do tempo"),
+    ("throttle_thermal", "Redução de clock por temperatura (1 = ativa)", "fração do tempo"),
+]
+NOT_VARIABLES = {"timestamp_utc", "horas", "execucao"}
+PER_IMAGE = 6
+
+
+def plot_all_variables(t: TestResult, warmup_min: float, out_prefix: Path) -> list[Path]:
+    """Um grafico por variavel em funcao do tempo, 6 por imagem (3 linhas x 2 colunas)."""
+    df = t.df
+    known = {c for c, _, _ in VARIABLES}
+    extra = [(c, c, "") for c in df.columns if c not in known and c not in NOT_VARIABLES
+             and pd.to_numeric(df[c], errors="coerce").notna().any()]
+    variables = VARIABLES + extra
+    pages = [variables[i:i + PER_IMAGE] for i in range(0, len(variables), PER_IMAGE)]
+    out = []
+    for n, page in enumerate(pages, start=1):
+        fig, axes = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
+        for ax, (col, title, unit) in zip(axes.flat, page):
+            ax.set_title(title)
+            ax.set_ylabel(unit)
+            if col in df and pd.to_numeric(df[col], errors="coerce").notna().any():
+                ax.plot(*_xy(df, col), color=SERIES[0], lw=0.6, alpha=0.25)            # cada amostra
+                ax.plot(*_xy(df, col, smooth_min=5), color=SERIES[0], label="média 5 min")
+                if warmup_min > 0:
+                    ax.axvspan(0, warmup_min / 60.0, color=GRID, alpha=0.5, lw=0)
+                if col.startswith("throttle_"):
+                    ax.set_ylim(-0.03, 1.03)
+            else:
+                _no_data(ax)
+        for ax in axes.flat[len(page):]:
+            ax.set_visible(False)
+        for ax in axes.flat:
+            if ax.get_visible():
+                ax.set_xlabel("Horas desde o início do teste")
+                ax.xaxis.set_tick_params(labelbottom=True)
+        fig.suptitle(f"{t.name}  ·  {t.platform}  ·  variáveis {n}/{len(pages)}",
+                     x=0.01, ha="left", color=INK, fontsize=12, fontweight="bold")
+        fig.text(0.01, 0.005, "Linha forte = média móvel de 5 min; clara = cada amostra (5 s). Faixa cinza = "
+                 "aquecimento. \"sem dados\" = a variável não é medida nesta cena/teste.", color=MUTED, fontsize=8)
+        fig.tight_layout(rect=(0, 0.02, 1, 0.96))
+        path = out_prefix.with_name(f"{out_prefix.name}_variaveis_{n}.png")
+        fig.savefig(path, dpi=120)
+        plt.close(fig)
+        out.append(path)
+    return out
+
+
 def plot_comparison(stats: pd.DataFrame, out_png: Path) -> None:
     stats = stats.copy()
     if "proc_private_mb_inicio" in stats:
@@ -251,6 +323,7 @@ def generate(paths, warmup_min: float = 5.0, out_dir: Path | None = None, log=pr
         if not t.df.empty:
             name = f"{t.name}__{t.platform}__{t.session}.png" if many else f"{t.name}.png"
             plot_test(t, warmup_min, out_dir / name)
+            plot_all_variables(t, warmup_min, out_dir / Path(name).stem)
     if len(stats) > 1:
         plot_comparison(stats, out_dir / "comparacao.png")
     log(f"Relatorio gerado em {out_dir}")
