@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -593,6 +594,7 @@ class WukongSession:
                 "instalacao": str(inst.install_dir),
                 "argumentos": list(w.get("launch_args", [])),
                 "modo_loop": w.get("modo_loop", "interno"),
+                "python": sys.executable,
                 "fonte_frames": (w.get("frames") or {}).get("fonte", "nenhuma"),
             },
             "testes": [],

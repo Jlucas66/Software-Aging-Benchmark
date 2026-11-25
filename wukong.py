@@ -305,6 +305,16 @@ def _duration(cfg, args, default_min=None) -> float:
 
 
 def _preflight(cfg, inst, tests) -> bool:
+    # Sem o psutil o orquestrador nao enxerga o processo do jogo: nao acha o jogo aberto, nao grava
+    # amostras e nao consegue fechar o jogo no fim. Acontece ao rodar fora do venv.
+    try:
+        import psutil  # noqa: F401
+    except ImportError:
+        print("O psutil nao esta disponivel neste Python:")
+        print(f"  {sys.executable}")
+        print("Provavelmente o venv nao esta ativado (falta o '(.venv)' no comeco da linha). Rode:")
+        print("  .venv\\Scripts\\activate" if is_windows() else "  source .venv/bin/activate")
+        return False
     if not inst.install_dir or not inst.ini or not inst.ini.exists():
         print("Benchmark Tool ou GameUserSettings.ini nao encontrado. Rode 'python wukong.py check'.")
         return False
