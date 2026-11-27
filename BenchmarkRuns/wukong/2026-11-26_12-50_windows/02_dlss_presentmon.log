@@ -1,0 +1,2 @@
+C:/Ferramentas/PresentMon/PresentMon.exe --process_name b1-Win64-Shipping.exe --output_stdout --no_console_stats --stop_existing_session --session_name BenchAging --track_frame_type
+

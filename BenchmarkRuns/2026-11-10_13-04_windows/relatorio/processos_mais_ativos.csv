@@ -1,4 +1,0 @@
-﻿sessao,teste,processo,cpu_max_pct,mem_max_mb,vezes_registrado,primeira_hora,ultima_hora,cpu_media_pct
-2026-11-10_13-04_windows,03_dlss_fg,EpicGamesLauncher.exe,0.1,419.3,1436,0.0,23.99691,0.1
-2026-11-10_13-04_windows,03_dlss_fg,MsMpEng.exe,0.1,413.1,739,0.0,12.34104,0.0
-2026-11-10_13-04_windows,03_dlss_fg,svchost.exe,1.6,80.1,1,0.25115,0.25115,0.0

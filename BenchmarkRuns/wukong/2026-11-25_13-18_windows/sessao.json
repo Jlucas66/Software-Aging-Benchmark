@@ -1,0 +1,143 @@
+{
+  "cena": "Black Myth: Wukong Benchmark Tool",
+  "plataforma": "windows",
+  "inicio": "2026-11-25T13:18:35-03:00",
+  "fim": "2026-11-26T12:43:46-03:00",
+  "maquina": {
+    "sistema": "Windows-11-10.0.26300-SP0",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "ram_gb": 31.7,
+    "gpu": "NVIDIA GeForce RTX 5070",
+    "driver_nvidia": "610.88"
+  },
+  "versoes": {
+    "dlls_nvidia_do_jogo": {
+      "nvngx_dlssg.dll": {
+        "bytes": 11727912,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "nvngx_dlss.dll": {
+        "bytes": 51717160,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "nvngx_dlssd.dll": {
+        "bytes": 43790888,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "sl.common.dll": {
+        "bytes": 654816,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "sl.dlss_g.dll": {
+        "bytes": 426464,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "sl.interposer.dll": {
+        "bytes": 533472,
+        "modificado": "2026-11-19T18:06:29"
+      },
+      "sl.pcl.dll": {
+        "bytes": 165856,
+        "modificado": "2026-11-19T18:08:32"
+      },
+      "sl.reflex.dll": {
+        "bytes": 173024,
+        "modificado": "2026-11-19T18:08:34"
+      }
+    }
+  },
+  "configuracao": {
+    "horas_por_teste": 24.0,
+    "intervalo_amostra_s": 5,
+    "pausa_entre_testes_min": 10,
+    "instalacao": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Black Myth Wukong Benchmark Tool",
+    "argumentos": [
+      "-dx12",
+      "-benchmark"
+    ],
+    "modo_loop": "interno",
+    "python": "C:\\Pesquisa\\Software-Aging-Benchmark\\.venv\\Scripts\\python.exe",
+    "fonte_frames": "presentmon",
+    "abertura": "automatica"
+  },
+  "testes": [
+    {
+      "id": 1,
+      "nome": "01_sem_dlss",
+      "features": [],
+      "arquivo": "01_sem_dlss.csv",
+      "status": "interrompido",
+      "inicio": "2026-11-25T13:18:35-03:00",
+      "fim": "2026-11-26T12:43:44-03:00",
+      "horas": 23.419,
+      "execucoes": 1,
+      "reinicios": 0,
+      "reaberturas_fim_de_volta": 0,
+      "voltas": 0,
+      "amostras": 16836,
+      "processos": "01_sem_dlss_processos.csv",
+      "eventos_sistema": "01_sem_dlss_eventos_sistema.txt",
+      "voltas_csv": "01_sem_dlss_voltas.csv",
+      "problemas": [],
+      "perfil": "01_sem_dlss",
+      "configuracao_pedida": {
+        "UISettingData": {
+          "MainDisplay": "0",
+          "PrivacyAgreement": "1",
+          "Min": "0",
+          "FrameRateQualityFirst": "0",
+          "ScreenBrightness": "60",
+          "ScreenMode": "1",
+          "ScreenRatio": "0",
+          "ScreenResolution": "0",
+          "WindowFullImageQuality": "0",
+          "LockFrameRate": "0",
+          "Vsync": "0",
+          "MotionBlur": "2",
+          "Dlss": "1",
+          "Dx12": "0",
+          "SoundVolume": "100",
+          "RecommendQualityLevel": "0",
+          "ImageQuality": "2160",
+          "SuperResolutionSampling": "3",
+          "InsertFrame": "0",
+          "Rtx": "1",
+          "QualityLevel": "4",
+          "ViewDistance": "4",
+          "AntiAliasing": "4",
+          "PostProcessing": "4",
+          "ShadowQuality": "4",
+          "TextureQuality": "4",
+          "FxQuality": "4",
+          "MaterialQuality": "4",
+          "VegetationQuality": "4",
+          "GlobalIllumination": "4",
+          "ReflectionQuality": "4",
+          "RtxLevel": "2"
+        },
+        "ScalabilityGroups": {
+          "sg.ResolutionQuality": "100",
+          "sg.ViewDistanceQuality": "3",
+          "sg.AntiAliasingQuality": "3",
+          "sg.ShadowQuality": "3",
+          "sg.GlobalIlluminationQuality": "3",
+          "sg.RayTracingQuality": "2",
+          "sg.ReflectionQuality": "3",
+          "sg.PostProcessQuality": "3",
+          "sg.TextureQuality": "3",
+          "sg.EffectsQuality": "3",
+          "sg.FoliageQuality": "3",
+          "sg.ShadingQuality": "3"
+        },
+        "principal": {
+          "ResolutionSizeX": "3840",
+          "ResolutionSizeY": "2160",
+          "FullscreenMode": "1",
+          "bUseVSync": "False",
+          "FrameRateLimit": "0.000000"
+        }
+      },
+      "n_eventos_sistema": 9
+    }
+  ]
+}

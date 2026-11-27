@@ -1,0 +1,5 @@
+﻿sessao,teste,processo,cpu_max_pct,mem_max_mb,vezes_registrado,primeira_hora,ultima_hora,cpu_media_pct
+2026-11-25_13-18_windows,01_sem_dlss,MemCompression,0.6,1792.3,1206,3.20195,23.40505,0.0
+2026-11-25_13-18_windows,01_sem_dlss,MsMpEng.exe,0.1,434.9,23,0.0,0.36879,0.0
+2026-11-25_13-18_windows,01_sem_dlss,explorer.exe,0.1,318.7,187,0.06705,3.18518,0.0
+2026-11-25_13-18_windows,01_sem_dlss,steamwebhelper.exe,0.0,312.6,191,0.0,3.18518,0.0

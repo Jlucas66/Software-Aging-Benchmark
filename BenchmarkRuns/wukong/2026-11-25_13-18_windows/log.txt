@@ -1,0 +1,17 @@
+2026-11-25 13:18:35 [INFO] Sessao: C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\wukong\2026-11-25_13-18_windows
+2026-11-25 13:18:35 [INFO] Suspensao automatica do Windows bloqueada durante os testes.
+2026-11-25 13:18:35 [INFO] ======================================================================
+2026-11-25 13:18:35 [INFO] TESTE 1 - 01_sem_dlss | 24.00 h | features: nenhuma
+2026-11-25 13:18:35 [INFO] Abrindo o Benchmark Tool (execucao 1, faltam 24.00 h)
+2026-11-25 13:18:35 [INFO] PresentMon medindo os frames de b1-Win64-Shipping.exe
+2026-11-25 13:18:38 [INFO] Abrindo pela Steam: c:/program files (x86)/steam/steam.exe -applaunch 3132990 -dx12 -benchmark
+2026-11-25 13:18:50 [INFO] PresentMon: primeiros frames recebidos (colunas: Application, ProcessID, SwapChainAddress, PresentRuntime, SyncInterval, PresentFlags, AllowsTearing, PresentMode, FrameType, TimeInMs, MsBetweenSimulationStart, MsBetweenPresents...)
+2026-11-25 13:18:58 [INFO] Teste rodando (GPU ocupada).
+2026-11-26 12:43:43 [WARNING] Interrompido pelo usuario (Ctrl+C).
+2026-11-26 12:43:43 [INFO] Benchmark Tool encerrado (1 processo(s)).
+2026-11-26 12:43:44 [INFO] Teste 01_sem_dlss terminou: interrompido (23.42 h, 16836 amostras, 0 volta(s), aberto 1 vez(es))
+2026-11-26 12:43:44 [WARNING] Sessao interrompida. Os dados ja gravados ficam em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\wukong\2026-11-25_13-18_windows
+2026-11-26 12:43:46 [INFO] Configuracoes originais do Benchmark Tool restauradas.
+2026-11-26 12:43:46 [INFO] ----------------------------------------------------------------------
+2026-11-26 12:43:46 [INFO]   01_sem_dlss        interrompido            23.42 h  16836 amostras    0 voltas   1 aberturas
+2026-11-26 12:43:46 [INFO] Resultados em C:\Pesquisa\Software-Aging-Benchmark\BenchmarkRuns\wukong\2026-11-25_13-18_windows
